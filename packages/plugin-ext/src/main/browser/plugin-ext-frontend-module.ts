@@ -67,6 +67,7 @@ import { WebviewWidget, WebviewWidgetIdentifier, WebviewWidgetExternalEndpoint }
 import { WebviewEnvironment } from './webview/webview-environment';
 import { WebviewThemeDataProvider } from './webview/webview-theme-data-provider';
 import { PluginCommandOpenHandler } from './plugin-command-open-handler';
+import { bindWebviewPreferences } from './webview/webview-preferences';
 
 export default new ContainerModule((bind, unbind, isBound, rebind) => {
 
@@ -153,6 +154,7 @@ export default new ContainerModule((bind, unbind, isBound, rebind) => {
     bind(PluginCommandOpenHandler).toSelf().inSingletonScope();
     bind(OpenHandler).toService(PluginCommandOpenHandler);
 
+    bindWebviewPreferences(bind);
     bind(WebviewEnvironment).toSelf().inSingletonScope();
     bind(WebviewThemeDataProvider).toSelf().inSingletonScope();
     bind(WebviewWidget).toSelf();

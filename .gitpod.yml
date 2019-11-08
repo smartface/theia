@@ -1,16 +1,19 @@
 image:
   file: .gitpod.dockerfile
 ports:
-- port: 3000
-- port: 6080
-  onOpen: ignore
-- port: 5900
-  onOpen: ignore
+  - port: 3000 # Theia
+  - port: 3030 # VS Code extension tests
+  - port: 9339 # Node.js debug port
+    onOpen: ignore
+  - port: 6080
+    onOpen: ignore
+  - port: 5900
+    onOpen: ignore
 tasks:
-- init: yarn
-  command: >
-    jwm &
-    yarn --cwd examples/browser start ../..
+  - init: yarn
+    command: >
+      jwm &
+      yarn --cwd examples/browser start ../..
 github:
   prebuilds:
     pullRequestsFromForks: true
