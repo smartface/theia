@@ -21,8 +21,8 @@ import { DebugConfigurationManager } from './debug-configuration-manager';
 import { DebugWidget } from './view/debug-widget';
 import { DebugPath, DebugService } from '../common/debug-service';
 import {
-    WidgetFactory, WebSocketConnectionProvider, FrontendApplicationContribution,
-    bindViewContribution, KeybindingContext, QuickOpenContribution
+    WidgetFactory, WebSocketConnectionProvider, /* FrontendApplicationContribution ,
+    bindViewContribution, */ KeybindingContext, QuickOpenContribution
 } from '@theia/core/lib/browser';
 import { DebugSessionManager } from './debug-session-manager';
 import { DebugResourceResolver } from './debug-resource';
@@ -35,7 +35,7 @@ import {
 } from './debug-session-contribution';
 import { bindContributionProvider, ResourceResolver } from '@theia/core';
 import { ContextKeyService } from '@theia/core/lib/browser/context-key-service';
-import { DebugFrontendApplicationContribution } from './debug-frontend-application-contribution';
+//import { DebugFrontendApplicationContribution } from './debug-frontend-application-contribution';
 import { DebugConsoleContribution } from './console/debug-console-contribution';
 import { BreakpointManager } from './breakpoint/breakpoint-manager';
 import { DebugEditorService } from './editor/debug-editor-service';
@@ -50,7 +50,7 @@ import { DebugCallStackItemTypeKey } from './debug-call-stack-item-type-key';
 import { bindLaunchPreferences } from './preferences/launch-preferences';
 import { DebugPrefixConfiguration } from './debug-prefix-configuration';
 import { CommandContribution } from '@theia/core/lib/common/command';
-import { TabBarToolbarContribution } from '@theia/core/lib/browser/shell/tab-bar-toolbar';
+//import { TabBarToolbarContribution } from '@theia/core/lib/browser/shell/tab-bar-toolbar';
 
 export default new ContainerModule((bind: interfaces.Bind) => {
     bind(DebugCallStackItemTypeKey).toDynamicValue(({ container }) =>
@@ -86,9 +86,9 @@ export default new ContainerModule((bind: interfaces.Bind) => {
     bind(KeybindingContext).to(InDebugModeContext).inSingletonScope();
     bind(KeybindingContext).to(BreakpointWidgetInputFocusContext).inSingletonScope();
     bind(KeybindingContext).to(BreakpointWidgetInputStrictFocusContext).inSingletonScope();
-    bindViewContribution(bind, DebugFrontendApplicationContribution);
-    bind(FrontendApplicationContribution).toService(DebugFrontendApplicationContribution);
-    bind(TabBarToolbarContribution).toService(DebugFrontendApplicationContribution);
+    //bindViewContribution(bind, DebugFrontendApplicationContribution);
+    //bind(FrontendApplicationContribution).toService(DebugFrontendApplicationContribution);
+    //bind(TabBarToolbarContribution).toService(DebugFrontendApplicationContribution);
 
     bind(DebugSessionContributionRegistryImpl).toSelf().inSingletonScope();
     bind(DebugSessionContributionRegistry).toService(DebugSessionContributionRegistryImpl);

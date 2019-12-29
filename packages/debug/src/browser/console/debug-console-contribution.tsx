@@ -114,16 +114,16 @@ export class DebugConsoleContribution extends AbstractViewContribution<ConsoleWi
             container.get(ContextKeyService).createKey('inDebugRepl', false)
         ).inSingletonScope();
         bind(DebugConsoleSession).toSelf().inSingletonScope();
-        bindViewContribution(bind, DebugConsoleContribution).onActivation((context, _) => {
-            // eagerly initialize the debug console session
-            context.container.get(DebugConsoleSession);
-            return _;
-        });
-        bind(TabBarToolbarContribution).toService(DebugConsoleContribution);
-        bind(WidgetFactory).toDynamicValue(({ container }) => ({
-            id: DebugConsoleContribution.options.id,
-            createWidget: () => DebugConsoleContribution.create(container)
-        }));
+        // bindViewContribution(bind, DebugConsoleContribution).onActivation((context, _) => {
+        //     // eagerly initialize the debug console session
+        //     context.container.get(DebugConsoleSession);
+        //     return _;
+        // });
+        // bind(TabBarToolbarContribution).toService(DebugConsoleContribution);
+        // // bind(WidgetFactory).toDynamicValue(({ container }) => ({
+        // //     id: DebugConsoleContribution.options.id,
+        // //     createWidget: () => DebugConsoleContribution.create(container)
+        // // }));
     }
 
     protected renderSeveritySelector(widget: Widget | undefined): React.ReactNode {

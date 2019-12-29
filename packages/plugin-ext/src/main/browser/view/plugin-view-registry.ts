@@ -22,12 +22,12 @@ import {
 } from '@theia/core/lib/browser';
 import { ViewContainer, View } from '../../../common';
 import { PluginSharedStyle } from '../plugin-shared-style';
-import { DebugWidget } from '@theia/debug/lib/browser/view/debug-widget';
+//import { DebugWidget } from '@theia/debug/lib/browser/view/debug-widget';
 import { PluginViewWidget, PluginViewWidgetIdentifier } from './plugin-view-widget';
 import { SCM_VIEW_CONTAINER_ID, ScmContribution } from '@theia/scm/lib/browser/scm-contribution';
 import { EXPLORER_VIEW_CONTAINER_ID } from '@theia/navigator/lib/browser';
 import { FileNavigatorContribution } from '@theia/navigator/lib/browser/navigator-contribution';
-import { DebugFrontendApplicationContribution } from '@theia/debug/lib/browser/debug-frontend-application-contribution';
+//import { DebugFrontendApplicationContribution } from '@theia/debug/lib/browser/debug-frontend-application-contribution';
 import { Disposable, DisposableCollection } from '@theia/core/lib/common/disposable';
 import { CommandRegistry } from '@theia/core/lib/common/command';
 import { MenuModelRegistry } from '@theia/core/lib/common/menu';
@@ -38,7 +38,7 @@ import { SearchInWorkspaceWidget } from '@theia/search-in-workspace/lib/browser/
 import { ViewContextKeyService } from './view-context-key-service';
 import { PROBLEMS_WIDGET_ID } from '@theia/markers/lib/browser/problem/problem-widget';
 import { OUTPUT_WIDGET_KIND } from '@theia/output/lib/browser/output-widget';
-import { DebugConsoleContribution } from '@theia/debug/lib/browser/console/debug-console-contribution';
+//import { DebugConsoleContribution } from '@theia/debug/lib/browser/console/debug-console-contribution';
 import { TERMINAL_WIDGET_FACTORY_ID } from '@theia/terminal/lib/browser/terminal-widget-impl';
 
 export const PLUGIN_VIEW_FACTORY_ID = 'plugin-view';
@@ -65,8 +65,8 @@ export class PluginViewRegistry implements FrontendApplicationContribution {
     @inject(FileNavigatorContribution)
     protected readonly explorer: FileNavigatorContribution;
 
-    @inject(DebugFrontendApplicationContribution)
-    protected readonly debug: DebugFrontendApplicationContribution;
+    //@inject(DebugFrontendApplicationContribution)
+    //protected readonly debug: DebugFrontendApplicationContribution;
 
     @inject(CommandRegistry)
     protected readonly commands: CommandRegistry;
@@ -100,13 +100,13 @@ export class PluginViewRegistry implements FrontendApplicationContribution {
         this.trackVisibleWidget(EXPLORER_VIEW_CONTAINER_ID, { viewletId: 'workbench.view.explorer' });
         this.trackVisibleWidget(SearchInWorkspaceWidget.ID, { viewletId: 'workbench.view.search', sideArea: true });
         this.trackVisibleWidget(SCM_VIEW_CONTAINER_ID, { viewletId: 'workbench.view.scm' });
-        this.trackVisibleWidget(DebugWidget.ID, { viewletId: 'workbench.view.debug' });
+        //this.trackVisibleWidget(DebugWidget.ID, { viewletId: 'workbench.view.debug' });
         // TODO workbench.view.extensions - Theia does not have a proper extension view yet
 
         // VS Code Panels
         this.trackVisibleWidget(PROBLEMS_WIDGET_ID, { panelId: 'workbench.panel.markers' });
         this.trackVisibleWidget(OUTPUT_WIDGET_KIND, { panelId: 'workbench.panel.output' });
-        this.trackVisibleWidget(DebugConsoleContribution.options.id, { panelId: 'workbench.panel.repl' });
+        //this.trackVisibleWidget(DebugConsoleContribution.options.id, { panelId: 'workbench.panel.repl' });
         this.trackVisibleWidget(TERMINAL_WIDGET_FACTORY_ID, { panelId: 'workbench.panel.terminal' });
         // TODO workbench.panel.comments - Theia does not have a proper comments view yet
         this.trackVisibleWidget(SearchInWorkspaceWidget.ID, { panelId: 'workbench.view.search', sideArea: false });
@@ -121,10 +121,10 @@ export class PluginViewRegistry implements FrontendApplicationContribution {
             if (factoryId === SCM_VIEW_CONTAINER_ID && widget instanceof ViewContainerWidget) {
                 this.prepareViewContainer('scm', widget);
             }
-            if (factoryId === DebugWidget.ID && widget instanceof DebugWidget) {
-                const viewContainer = widget['sessionWidget']['viewContainer'];
-                this.prepareViewContainer('debug', viewContainer);
-            }
+            // if (factoryId === DebugWidget.ID && widget instanceof DebugWidget) {
+            //     const viewContainer = widget['sessionWidget']['viewContainer'];
+            //     this.prepareViewContainer('debug', viewContainer);
+            // }
             if (factoryId === PLUGIN_VIEW_CONTAINER_FACTORY_ID && widget instanceof ViewContainerWidget) {
                 this.prepareViewContainer(this.toViewContainerId(widget.options), widget);
             }
@@ -132,11 +132,11 @@ export class PluginViewRegistry implements FrontendApplicationContribution {
                 this.prepareView(widget);
             }
         });
-        this.doRegisterViewContainer('test', 'left', {
-            label: 'Test',
-            iconClass: 'theia-plugin-test-tab-icon',
-            closeable: true
-        });
+        // this.doRegisterViewContainer('test', 'left', {
+        //     label: 'Test',
+        //     iconClass: 'theia-plugin-test-tab-icon',
+        //     closeable: true
+        // });
         this.contextKeyService.onDidChange(e => {
             for (const [, view] of this.views.values()) {
                 const clauseContext = this.viewClauseContexts.get(view.id);
@@ -326,10 +326,10 @@ export class PluginViewRegistry implements FrontendApplicationContribution {
             }
             return undefined;
         }
-        if (containerId === 'debug') {
-            const widget = await this.debug.openView();
-            return widget['sessionWidget']['viewContainer'];
-        }
+        // if (containerId === 'debug') {
+        //     const widget = await this.debug.openView();
+        //     return widget['sessionWidget']['viewContainer'];
+        // }
         const data = this.viewContainers.get(containerId);
         if (!data) {
             return undefined;
@@ -388,12 +388,12 @@ export class PluginViewRegistry implements FrontendApplicationContribution {
         if (viewContainerId === 'scm') {
             return this.widgetManager.getWidget<ViewContainerWidget>(SCM_VIEW_CONTAINER_ID);
         }
-        if (viewContainerId === 'debug') {
-            const debug = await this.widgetManager.getWidget(DebugWidget.ID);
-            if (debug instanceof DebugWidget) {
-                return debug['sessionWidget']['viewContainer'];
-            }
-        }
+        // if (viewContainerId === 'debug') {
+        //     const debug = await this.widgetManager.getWidget(DebugWidget.ID);
+        //     if (debug instanceof DebugWidget) {
+        //         return debug['sessionWidget']['viewContainer'];
+        //     }
+        // }
         const identifier = this.toViewContainerIdentifier(viewContainerId);
         return this.widgetManager.getWidget<ViewContainerWidget>(PLUGIN_VIEW_CONTAINER_FACTORY_ID, identifier);
     }
@@ -427,11 +427,11 @@ export class PluginViewRegistry implements FrontendApplicationContribution {
             }
         })().catch(console.error));
         promises.push((async () => {
-            const debug = await this.widgetManager.getWidget(DebugWidget.ID);
-            if (debug instanceof DebugWidget) {
-                const viewContainer = debug['sessionWidget']['viewContainer'];
-                await this.prepareViewContainer('debug', viewContainer);
-            }
+            //const debug = await this.widgetManager.getWidget(DebugWidget.ID);
+            // if (debug instanceof DebugWidget) {
+            //     const viewContainer = debug['sessionWidget']['viewContainer'];
+            //     await this.prepareViewContainer('debug', viewContainer);
+            // }
         })().catch(console.error));
         await Promise.all(promises);
     }
