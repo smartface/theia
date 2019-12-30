@@ -15,7 +15,7 @@
  ********************************************************************************/
 
 import { ConsoleOptions, ConsoleWidget } from '@theia/console/lib/browser/console-widget';
-import { AbstractViewContribution, bindViewContribution, Widget, WidgetFactory } from '@theia/core/lib/browser';
+import { AbstractViewContribution, /*bindViewContribution,*/ Widget /*, WidgetFactory*/ } from '@theia/core/lib/browser';
 import { ContextKey, ContextKeyService } from '@theia/core/lib/browser/context-key-service';
 import { TabBarToolbarContribution, TabBarToolbarRegistry } from '@theia/core/lib/browser/shell/tab-bar-toolbar';
 import { Command, CommandRegistry } from '@theia/core/lib/common/command';
