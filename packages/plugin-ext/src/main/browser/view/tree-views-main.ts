@@ -15,13 +15,14 @@
  ********************************************************************************/
 
 import { interfaces } from 'inversify';
-import { MAIN_RPC_CONTEXT, TreeViewsMain, TreeViewsExt } from '../../../common/plugin-api-rpc';
+import { MAIN_RPC_CONTEXT, TreeViewsMain, TreeViewsExt, TreeViewRevealOptions } from '../../../common/plugin-api-rpc';
 import { RPCProtocol } from '../../../common/rpc-protocol';
 import { PluginViewRegistry, PLUGIN_VIEW_DATA_FACTORY_ID } from './plugin-view-registry';
 import { SelectableTreeNode, ExpandableTreeNode, CompositeTreeNode, WidgetManager } from '@theia/core/lib/browser';
 import { ViewContextKeyService } from './view-context-key-service';
 import { Disposable, DisposableCollection } from '@theia/core';
 import { TreeViewWidget, TreeViewNode } from './tree-view-widget';
+import { PluginViewWidget } from './plugin-view-widget';
 
 export class TreeViewsMainImpl implements TreeViewsMain, Disposable {
 
@@ -96,15 +97,34 @@ export class TreeViewsMainImpl implements TreeViewsMain, Disposable {
         }
     }
 
-    // tslint:disable-next-line:no-any
-    async $reveal(treeViewId: string, treeItemId: string): Promise<any> {
-        const viewPanel = await this.viewRegistry.openView(treeViewId);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    async $reveal(treeViewId: string, treeItemId: string, options: TreeViewRevealOptions): Promise<any> {
+        const viewPanel = await this.viewRegistry.openView(treeViewId, { activate: options.focus });
         const widget = viewPanel && viewPanel.widgets[0];
         if (widget instanceof TreeViewWidget) {
             const treeNode = widget.model.getNode(treeItemId);
-            if (treeNode && SelectableTreeNode.is(treeNode)) {
-                widget.model.selectNode(treeNode);
+            if (treeNode) {
+                if (options.expand && ExpandableTreeNode.is(treeNode)) {
+                    widget.model.expandNode(treeNode);
+                }
+                if (options.select && SelectableTreeNode.is(treeNode)) {
+                    widget.model.selectNode(treeNode);
+                }
             }
+        }
+    }
+
+    async $setMessage(treeViewId: string, message: string): Promise<void> {
+        const viewPanel = await this.viewRegistry.getView(treeViewId);
+        if (viewPanel instanceof PluginViewWidget) {
+            viewPanel.message = message;
+        }
+    }
+
+    async $setTitle(treeViewId: string, title: string): Promise<void> {
+        const viewPanel = await this.viewRegistry.getView(treeViewId);
+        if (viewPanel) {
+            viewPanel.title.label = title;
         }
     }
 

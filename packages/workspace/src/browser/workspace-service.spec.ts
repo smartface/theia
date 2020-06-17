@@ -25,6 +25,8 @@ import { FileSystemNode } from '@theia/filesystem/lib/node/node-filesystem';
 import { FileSystemWatcher, FileChangeEvent, FileChangeType } from '@theia/filesystem/lib/browser/filesystem-watcher';
 import { WindowService } from '@theia/core/lib/browser/window/window-service';
 import { DefaultWindowService } from '@theia/core/lib/browser/window/default-window-service';
+import { EnvVariablesServer } from '@theia/core/lib/common/env-variables';
+import { MockEnvVariablesServerImpl } from '@theia/core/lib/browser/test/mock-env-variables-server';
 import { WorkspaceServer } from '../common';
 import { DefaultWorkspaceServer } from '../node/default-workspace-server';
 import { Emitter, Disposable, DisposableCollection, ILogger, Logger } from '@theia/core';
@@ -35,10 +37,13 @@ import * as jsoncparser from 'jsonc-parser';
 import * as sinon from 'sinon';
 import * as chai from 'chai';
 import * as assert from 'assert';
+import * as temp from 'temp';
+import { FileUri } from '@theia/core/lib/node';
 import URI from '@theia/core/lib/common/uri';
 const expect = chai.expect;
 
 disableJSDOM();
+const track = temp.track();
 
 const folderA = Object.freeze(<FileStat>{
     uri: 'file:///home/folderA',
@@ -55,8 +60,8 @@ const getFormattedJson = (data: string): string => {
     return jsoncparser.applyEdits(data, edits);
 };
 
-// tslint:disable:no-any
-// tslint:disable:no-unused-expression
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable no-unused-expressions */
 describe('WorkspaceService', () => {
     const toRestore: Array<sinon.SinonStub | sinon.SinonSpy | sinon.SinonMock> = [];
     const toDispose: Disposable[] = [];
@@ -86,6 +91,7 @@ describe('WorkspaceService', () => {
 
     after(() => {
         disableJSDOM();
+        track.cleanupSync();
     });
 
     beforeEach(() => {
@@ -107,6 +113,7 @@ describe('WorkspaceService', () => {
         testContainer.bind(WindowService).toConstantValue(mockWindowService);
         testContainer.bind(ILogger).toConstantValue(mockILogger);
         testContainer.bind(WorkspacePreferences).toConstantValue(mockPref);
+        testContainer.bind(EnvVariablesServer).toConstantValue(new MockEnvVariablesServerImpl(FileUri.create(track.mkdirSync())));
         testContainer.bind(PreferenceServiceImpl).toConstantValue(mockPreferenceServiceImpl);
         testContainer.bind(PreferenceSchemaProvider).toConstantValue(mockPreferenceSchemaProvider);
 
@@ -182,8 +189,10 @@ describe('WorkspaceService', () => {
             });
         });
 
-        it('should set the exposed roots and workspace to the folders listed in the workspace file returned by the server, ' +
-            'and start watching the workspace file and all the folders', async () => {
+        it(
+            'should set the exposed roots and workspace to the folders listed in the workspace file returned by the server, ' +
+            'and start watching the workspace file and all the folders',
+            async () => {
                 const workspaceFilePath = '/home/workspaceFile';
                 const workspaceFileUri = 'file://' + workspaceFilePath;
                 const workspaceFileStat = <FileStat>{
@@ -218,6 +227,38 @@ describe('WorkspaceService', () => {
                 expect((<Map<string, Disposable>>wsService['rootWatchers']).size).to.eq(2);
                 expect((<Map<string, Disposable>>wsService['rootWatchers']).has(rootA)).to.be.true;
                 expect((<Map<string, Disposable>>wsService['rootWatchers']).has(rootB)).to.be.true;
+            });
+
+        it(
+            'should resolve a relative workspace root path to a normalized root path',
+            async () => {
+                const workspaceFilePath = '/home/workspaceFile';
+                const workspaceFileUri = 'file://' + workspaceFilePath;
+                const workspaceFileStat = <FileStat>{
+                    uri: workspaceFileUri,
+                    lastModification: 0,
+                    isDirectory: false
+                };
+                const rootRelative = '../workspace';
+                const rootActual = 'file:///workspace';
+                (<sinon.SinonStub>mockWorkspaceServer.getMostRecentlyUsedWorkspace).resolves(workspaceFileStat.uri);
+                const stubGetFileStat = (<sinon.SinonStub>mockFilesystem.getFileStat);
+                stubGetFileStat.withArgs(workspaceFileUri).resolves(workspaceFileStat);
+                (<sinon.SinonStub>mockFilesystem.exists).resolves(true);
+                (<sinon.SinonStub>mockFilesystem.resolveContent).resolves({
+                    stat: workspaceFileStat,
+                    content: `{"folders":[{"path":"${rootRelative}"}],"settings":{}}`
+                });
+                stubGetFileStat.withArgs(rootActual).resolves(<FileStat>{
+                    uri: rootActual, lastModification: 0, isDirectory: true
+                });
+                (<sinon.SinonStub>mockFileSystemWatcher.watchFileChanges).resolves(new DisposableCollection());
+
+                await wsService['init']();
+                expect(wsService.workspace).to.eq(workspaceFileStat);
+                expect((await wsService.roots).length).to.eq(1);
+                expect(wsService.tryGetRoots().length).to.eq(1);
+                expect(wsService.tryGetRoots()[0].uri).to.eq(rootActual);
             });
 
         it('should set the exposed roots an empty array if the workspace file stores invalid workspace data', async () => {
@@ -585,7 +626,7 @@ describe('WorkspaceService', () => {
     });
 
     describe('saved status', () => {
-        it('should be true if there is an opened workspace, and the opened workspace is not a folder, othewise false', () => {
+        it('should be true if there is an opened workspace, and the opened workspace is not a folder, otherwise false', () => {
             const file = <FileStat>{
                 uri: 'file:///home/file',
                 lastModification: 0,

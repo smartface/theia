@@ -18,7 +18,7 @@ source code repository logs.
 
 This program and the accompanying materials are made available under the terms
 of the Eclipse Public License v. 2.0 which is available at
-http://www.eclipse.org/legal/epl-2.0. This Source Code may also be made
+https://www.eclipse.org/legal/epl-2.0. This Source Code may also be made
 available under the following Secondary Licenses when the conditions for such
 availability set forth in the Eclipse Public License v. 2.0 are satisfied: GNU
 General Public License, version 2 with the GNU Classpath Exception which is
@@ -255,12 +255,6 @@ vscode-java (0.44.0)
 vscode-java-debug (0.15.0)
 
 * License: MIT
-
-webdriverio (n/a)
-
-* License: MIT
-* Project: http://webdriver.io/
-* Source: https://github.com/webdriverio/webdriverio.git
 
 when (3.7.8)
 

@@ -14,6 +14,8 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  ********************************************************************************/
 
+/* eslint-disable @typescript-eslint/indent */
+
 import { AbstractGenerator } from './abstract-generator';
 import { existsSync, readFileSync } from 'fs';
 
@@ -44,7 +46,7 @@ export class FrontendGenerator extends AbstractGenerator {
 
     protected compileIndexHtml(frontendModules: Map<string, string>): string {
         return `<!DOCTYPE html>
-<html>
+<html lang="en">
 
 <head>${this.compileIndexHead(frontendModules)}
   <script type="text/javascript" src="./bundle.js" charset="utf-8"></script>
@@ -59,7 +61,9 @@ export class FrontendGenerator extends AbstractGenerator {
 
     protected compileIndexHead(frontendModules: Map<string, string>): string {
         return `
-  <meta charset="UTF-8">`;
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="apple-mobile-web-app-capable" content="yes">`;
     }
 
     protected compileIndexJs(frontendModules: Map<string, string>): string {
@@ -69,7 +73,9 @@ require('reflect-metadata');
 const { Container } = require('inversify');
 const { FrontendApplication } = require('@theia/core/lib/browser');
 const { frontendApplicationModule } = require('@theia/core/lib/browser/frontend-application-module');
-const { messagingFrontendModule } = require('@theia/core/lib/${this.pck.isBrowser() ? 'browser/messaging/messaging-frontend-module' : 'electron-browser/messaging/electron-messaging-frontend-module'}');
+const { messagingFrontendModule } = require('@theia/core/lib/${this.pck.isBrowser()
+                ? 'browser/messaging/messaging-frontend-module'
+                : 'electron-browser/messaging/electron-messaging-frontend-module'}');
 const { loggerFrontendModule } = require('@theia/core/lib/browser/logger-frontend-module');
 const { ThemeService } = require('@theia/core/lib/browser/theming');
 const { FrontendApplicationConfigProvider } = require('@theia/core/lib/browser/frontend-application-config-provider');
@@ -88,11 +94,13 @@ function load(raw) {
 }
 
 function start() {
+    (window['theia'] = window['theia'] || {}).container = container;
+
     const themeService = ThemeService.get();
     themeService.loadUserTheme();
 
     const application = container.get(FrontendApplication);
-    application.start();
+    return application.start();
 }
 
 module.exports = Promise.resolve()${this.compileFrontendModuleImports(frontendModules)}
@@ -122,13 +130,18 @@ if (process.env.LC_ALL) {
 }
 process.env.LC_NUMERIC = 'C';
 
+const { v4 } = require('uuid');
 const electron = require('electron');
 const { join, resolve } = require('path');
 const { fork } = require('child_process');
-const { app, dialog, shell, BrowserWindow, ipcMain, Menu } = electron;
+const { app, dialog, shell, BrowserWindow, ipcMain, Menu, globalShortcut } = electron;
+const { ElectronSecurityToken } = require('@theia/core/lib/electron-common/electron-token');
 
 const applicationName = \`${this.pck.props.frontend.config.applicationName}\`;
 const isSingleInstance = ${this.pck.props.backend.config.singleInstance === true ? 'true' : 'false'};
+const disallowReloadKeybinding = ${this.pck.props.frontend.config.electron?.disallowReloadKeybinding === true ? 'true' : 'false'};
+const defaultWindowOptionsAdditions = ${this.prettyStringify(this.pck.props.frontend.config.electron?.windowOptions || {})};
+
 
 if (isSingleInstance && !app.requestSingleInstanceLock()) {
     // There is another instance running, exit now. The other instance will request focus.
@@ -140,7 +153,15 @@ const nativeKeymap = require('native-keymap');
 const Storage = require('electron-store');
 const electronStore = new Storage();
 
+const electronSecurityToken = {
+    value: v4(),
+};
+
+// Make it easy for renderer process to fetch the ElectronSecurityToken:
+global[ElectronSecurityToken] = electronSecurityToken;
+
 app.on('ready', () => {
+
     // Explicitly set the app name to have better menu items on macOS. ("About", "Hide", and "Quit")
     // See: https://github.com/electron-userland/electron-builder/issues/2468
     app.setName(applicationName);
@@ -168,6 +189,13 @@ app.on('ready', () => {
             width, height, x, y
         });
 
+        const persistedWindowOptionsAdditions = electronStore.get('windowOptions', {});
+
+        const windowOptionsAdditions = {
+            ...defaultWindowOptionsAdditions,
+            ...persistedWindowOptionsAdditions
+        };
+
         let windowOptions = {
             show: false,
             title: applicationName,
@@ -177,7 +205,8 @@ app.on('ready', () => {
             minHeight: 120,
             x: windowState.x,
             y: windowState.y,
-            isMaximized: windowState.isMaximized
+            isMaximized: windowState.isMaximized,
+            ...windowOptionsAdditions
         };
 
         // Always hide the window, we will show the window when it is ready to be shown in any case.
@@ -186,6 +215,14 @@ app.on('ready', () => {
             newWindow.maximize();
         }
         newWindow.on('ready-to-show', () => newWindow.show());
+        if (disallowReloadKeybinding) {
+            newWindow.on('focus', event => {
+                for (const accelerator of ['CmdOrCtrl+R','F5']) {
+                    globalShortcut.register(accelerator, () => {});
+                }
+            });
+            newWindow.on('blur', event => globalShortcut.unregisterAll());
+        }
 
         // Prevent calls to "window.open" from opening an ElectronBrowser window,
         // and rather open in the OS default web browser.
@@ -267,10 +304,18 @@ app.on('ready', () => {
     ipcMain.on('open-external', (event, url) => {
         shell.openExternal(url);
     });
+    ipcMain.on('set-window-options', (event, options) => {
+        electronStore.set('windowOptions', options);
+    });
+    ipcMain.on('get-persisted-window-options-additions', event => {
+        event.returnValue = electronStore.get('windowOptions', {});
+    });
 
     // Check whether we are in bundled application or development mode.
     // @ts-ignore
     const devMode = process.defaultApp || /node_modules[\/]electron[\/]/.test(process.execPath);
+    // Check if we should run everything as one process.
+    const noBackendFork = process.argv.includes('--no-cluster');
     const mainWindow = createNewWindow();
 
     if (isSingleInstance) {
@@ -285,7 +330,24 @@ app.on('ready', () => {
         })
     }
 
-    const loadMainWindow = (port) => {
+    const setElectronSecurityToken = port => {
+        return new Promise((resolve, reject) => {
+            electron.session.defaultSession.cookies.set({
+                url: \`http://localhost:\${port}/\`,
+                name: ElectronSecurityToken,
+                value: JSON.stringify(electronSecurityToken),
+                httpOnly: true,
+            }, error => {
+                if (error) {
+                    reject(error);
+                } else {
+                    resolve();
+                }
+            });
+        })
+    }
+
+    const loadMainWindow = port => {
         if (!mainWindow.isDestroyed()) {
             mainWindow.loadURL('file://' + join(__dirname, '../../lib/index.html') + '?port=' + port);
         }
@@ -298,27 +360,32 @@ app.on('ready', () => {
 
     // Set the electron version for both the dev and the production mode. (https://github.com/eclipse-theia/theia/issues/3254)
     // Otherwise, the forked backend processes will not know that they're serving the electron frontend.
-    const { versions } = process;
-    // @ts-ignore
-    if (versions && typeof versions.electron !== 'undefined') {
-        // @ts-ignore
-        process.env.THEIA_ELECTRON_VERSION = versions.electron;
-    }
+    // The forked backend should patch its \`process.versions.electron\` with this value if it is missing.
+    process.env.THEIA_ELECTRON_VERSION = process.versions.electron;
 
     const mainPath = join(__dirname, '..', 'backend', 'main');
-    // We need to distinguish between bundled application and development mode when starting the clusters.
-    // See: https://github.com/electron/electron/issues/6337#issuecomment-230183287
-    if (devMode) {
-        require(mainPath).then(address => {
+    // We spawn a separate process for the backend for Express to not run in the Electron main process.
+    // See: https://github.com/eclipse-theia/theia/pull/7361#issuecomment-601272212
+    // But when in debugging we want to run everything in the same process to make things easier.
+    if (noBackendFork) {
+        process.env[ElectronSecurityToken] = JSON.stringify(electronSecurityToken);
+        require(mainPath).then(async (address) => {
+            await setElectronSecurityToken(address.port);
             loadMainWindow(address.port);
         }).catch((error) => {
             console.error(error);
             app.exit(1);
         });
     } else {
-        const cp = fork(mainPath, [], { env: Object.assign({}, process.env) });
-        cp.on('message', (message) => {
-            loadMainWindow(message);
+        // We want to pass flags passed to the Electron app to the backend process.
+        // Quirk: When developing from sources, we execute Electron as \`electron.exe electron-main.js ...args\`, but when bundled,
+        // the command looks like \`bundled-application.exe ...args\`.
+        const cp = fork(mainPath, process.argv.slice(devMode ? 2 : 1), { env: Object.assign({
+            [ElectronSecurityToken]: JSON.stringify(electronSecurityToken),
+        }, process.env) });
+        cp.on('message', async (address) => {
+            await setElectronSecurityToken(address.port);
+            loadMainWindow(address.port);
         });
         cp.on('error', (error) => {
             console.error(error);

@@ -24,6 +24,11 @@ import { FileStat } from '../../common';
 import { FileAccess } from '../../common/filesystem';
 import { DefaultFileDialogService, OpenFileDialogProps, SaveFileDialogProps } from '../../browser/file-dialog';
 
+// See https://github.com/electron/electron/blob/v4.2.12/docs/api/dialog.md
+// These properties get extended with newer versions of Electron
+type DialogProperties = 'openFile' | 'openDirectory' | 'multiSelections' | 'showHiddenFiles' |
+    'createDirectory' | 'promptToCreate' | 'noResolveAliases' | 'treatPackageAsDirectory';
+
 //
 // We are OK to use this here because the electron backend and frontend are on the same host.
 // If required, we can move this single service (and its module) to a dedicated Theia extension,
@@ -43,17 +48,16 @@ export class ElectronFileDialogService extends DefaultFileDialogService {
         const rootNode = await this.getRootNode(folder);
         if (rootNode) {
             return new Promise<MaybeArray<URI> | undefined>(resolve => {
-                remote.dialog.showOpenDialog(this.toOpenDialogOptions(rootNode.uri, props), (filePaths: string[] | undefined) => {
+                remote.dialog.showOpenDialog(this.toOpenDialogOptions(rootNode.uri, props), async (filePaths: string[] | undefined) => {
                     if (!filePaths || filePaths.length === 0) {
                         resolve(undefined);
                         return;
                     }
+
                     const uris = filePaths.map(path => FileUri.create(path));
-                    if (this.canReadWrite(uris)) {
-                        resolve(uris.length === 1 ? uris[0] : uris);
-                    } else {
-                        resolve(undefined);
-                    }
+                    const canAccess = await this.canReadWrite(uris);
+                    const result = canAccess ? uris.length === 1 ? uris[0] : uris : undefined;
+                    resolve(result);
                 });
             });
         }
@@ -64,17 +68,21 @@ export class ElectronFileDialogService extends DefaultFileDialogService {
         const rootNode = await this.getRootNode(folder);
         if (rootNode) {
             return new Promise<URI | undefined>(resolve => {
-                remote.dialog.showSaveDialog(this.toSaveDialogOptions(rootNode.uri, props), (filename: string | undefined) => {
+                remote.dialog.showSaveDialog(this.toSaveDialogOptions(rootNode.uri, props), async (filename: string | undefined) => {
                     if (!filename) {
                         resolve(undefined);
                         return;
                     }
+
                     const uri = FileUri.create(filename);
-                    if (this.canReadWrite(uri)) {
+                    const exists = await this.fileSystem.exists(uri.toString());
+                    if (!exists) {
                         resolve(uri);
-                    } else {
-                        resolve(undefined);
+                        return;
                     }
+
+                    const canAccess = await this.canReadWrite(uri);
+                    resolve(canAccess ? uri : undefined);
                 });
             });
         }
@@ -102,7 +110,7 @@ export class ElectronFileDialogService extends DefaultFileDialogService {
     }
 
     protected toOpenDialogOptions(uri: URI, props: OpenFileDialogProps): OpenDialogOptions {
-        const properties: Array<'openFile' | 'openDirectory' | 'multiSelections'> = electron.dialog.toDialogProperties(props);
+        const properties = electron.dialog.toDialogProperties(props);
         const buttonLabel = props.openLabel;
         return { ...this.toDialogOptions(uri, props, 'Open'), properties, buttonLabel };
     }
@@ -149,11 +157,11 @@ export namespace electron {
          *
          * See: https://github.com/electron/electron/issues/10252#issuecomment-322012159
          */
-        export function toDialogProperties(props: OpenFileDialogProps): Array<'openFile' | 'openDirectory' | 'multiSelections'> {
+        export function toDialogProperties(props: OpenFileDialogProps): Array<DialogProperties> {
             if (!isOSX && props.canSelectFiles !== false && props.canSelectFolders === true) {
                 throw new Error(`Illegal props. Cannot have 'canSelectFiles' and 'canSelectFolders' at the same times. Props was: ${JSON.stringify(props)}.`);
             }
-            const properties: Array<'openFile' | 'openDirectory' | 'multiSelections'> = [];
+            const properties: Array<DialogProperties> = [];
             if (!isOSX) {
                 if (props.canSelectFiles !== false && props.canSelectFolders !== true) {
                     properties.push('openFile');
@@ -167,6 +175,7 @@ export namespace electron {
                 }
                 if (props.canSelectFolders === true) {
                     properties.push('openDirectory');
+                    properties.push('createDirectory');
                 }
             }
             if (props.canSelectMany === true) {

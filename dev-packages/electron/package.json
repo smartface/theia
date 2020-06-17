@@ -1,6 +1,6 @@
 {
   "name": "@theia/electron",
-  "version": "0.14.0",
+  "version": "1.2.0",
   "description": "Electron runtime dependencies for Theia",
   "publishConfig": {
     "access": "public"
@@ -16,7 +16,6 @@
   "homepage": "https://github.com/eclipse-theia/theia",
   "bin": {
     "electron": "electron-cli.js",
-    "electron-h264-test": "electron-h264-test.js",
     "electron-codecs-test": "electron-codecs-test.js",
     "electron-replace-ffmpeg": "electron-replace-ffmpeg.js"
   },

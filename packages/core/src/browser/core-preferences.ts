@@ -29,6 +29,11 @@ export const corePreferenceSchema: PreferenceSchema = {
             default: 'singleClick',
             description: 'Controls how to open items in trees using the mouse.'
         },
+        'workbench.editor.highlightModifiedTabs': {
+            'type': 'boolean',
+            'description': 'Controls whether a top border is drawn on modified (dirty) editor tabs or not.',
+            'default': false
+        },
         'application.confirmExit': {
             type: 'string',
             enum: [
@@ -44,6 +49,19 @@ export const corePreferenceSchema: PreferenceSchema = {
             default: 50,
             minimum: 0,
             description: 'Controls the number of recently used commands to keep in history for the command palette. Set to 0 to disable command history.'
+        },
+        'workbench.colorTheme': {
+            type: 'string',
+            description: 'Specifies the color theme used in the workbench.'
+        },
+        'workbench.iconTheme': {
+            type: ['string', 'null'],
+            description: "Specifies the icon theme used in the workbench or 'null' to not show any file icons."
+        },
+        'workbench.silentNotifications': {
+            type: 'boolean',
+            default: false,
+            description: 'Controls whether to suppress notification popups.'
         }
     }
 };
@@ -52,6 +70,10 @@ export interface CoreConfiguration {
     'application.confirmExit': 'never' | 'ifRequired' | 'always';
     'workbench.list.openMode': 'singleClick' | 'doubleClick';
     'workbench.commandPalette.history': number;
+    'workbench.editor.highlightModifiedTabs': boolean;
+    'workbench.colorTheme'?: string;
+    'workbench.iconTheme'?: string | null;
+    'workbench.silentNotifications': boolean;
 }
 
 export const CorePreferences = Symbol('CorePreferences');

@@ -212,9 +212,18 @@ export interface FileSystemClient {
      */
     shouldOverwrite: FileShouldOverwrite;
 
-    onDidMove(sourceUri: string, targetUri: string): void;
+    willCreate(uri: string): Promise<void>;
 
-    onWillMove(sourceUri: string, targetUri: string): void;
+    didCreate(uri: string, failed: boolean): Promise<void>;
+
+    willDelete(uri: string): Promise<void>;
+
+    didDelete(uri: string, failed: boolean): Promise<void>;
+
+    willMove(sourceUri: string, targetUri: string): Promise<void>;
+
+    didMove(sourceUri: string, targetUri: string, failed: boolean): Promise<void>;
+
 }
 
 @injectable()
@@ -223,17 +232,33 @@ export class DispatchingFileSystemClient implements FileSystemClient {
     readonly clients = new Set<FileSystemClient>();
 
     shouldOverwrite(originalStat: FileStat, currentStat: FileStat): Promise<boolean> {
-        return Promise.race([...this.clients].map(client =>
+        return Promise.race(Array.from(this.clients, client =>
             client.shouldOverwrite(originalStat, currentStat))
         );
     }
 
-    onDidMove(sourceUri: string, targetUri: string): void {
-        this.clients.forEach(client => client.onDidMove(sourceUri, targetUri));
+    async willCreate(uri: string): Promise<void> {
+        await Promise.all(Array.from(this.clients, client => client.willCreate(uri)));
     }
 
-    onWillMove(sourceUri: string, targetUri: string): void {
-        this.clients.forEach(client => client.onWillMove(sourceUri, targetUri));
+    async didCreate(uri: string, failed: boolean): Promise<void> {
+        await Promise.all(Array.from(this.clients, client => client.didCreate(uri, failed)));
+    }
+
+    async willDelete(uri: string): Promise<void> {
+        await Promise.all(Array.from(this.clients, client => client.willDelete(uri)));
+    }
+
+    async didDelete(uri: string, failed: boolean): Promise<void> {
+        await Promise.all(Array.from(this.clients, client => client.didDelete(uri, failed)));
+    }
+
+    async willMove(sourceUri: string, targetUri: string): Promise<void> {
+        await Promise.all(Array.from(this.clients, client => client.willMove(sourceUri, targetUri)));
+    }
+
+    async didMove(sourceUri: string, targetUri: string, failed: boolean): Promise<void> {
+        await Promise.all(Array.from(this.clients, client => client.didMove(sourceUri, targetUri, failed)));
     }
 
 }

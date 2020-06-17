@@ -14,23 +14,24 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  ********************************************************************************/
 
-
 .theia-search-box {
     position: absolute;
     top: 0px;
     right: 0px;
     display: flex;
     align-items: baseline;
-    box-shadow: var(--theia-border-width) var(--theia-border-width) var(--theia-border-color0);
+    box-shadow: var(--theia-border-width) var(--theia-border-width) var(--theia-widget-shadow);
     line-height: var(--theia-private-horizontal-tab-height);
-    background-color: var(--theia-layout-color0);
-    z-index: 1;
+    background-color: var(--theia-editor-background);
+    z-index: calc(var(--theia-tabbar-toolbar-z-index) + 1);
+    border: var(--theia-border-width) solid var(--theia-editor-background);
 }
   
 .theia-search-input {
     flex-grow: 1;
     line-height: calc(var(--theia-private-horizontal-tab-height) * 0.8);
     max-width: 6rem;
+    background-color: var(--theia-input-background);
 }
   
 .theia-search-button {
@@ -39,16 +40,22 @@
     flex-grow: 0;
     font-family: FontAwesome;
     font-size: calc(var(--theia-content-font-size) * 0.8);
-    color: var(--theia-ui-font-color1);
+    color: var(--theia-editorWidget-foreground);
 }
 
 .theia-search-button-next:before {
     content: "\f107";
 }
 
+.theia-search-button-next:hover,
+.theia-search-button-previous:hover,
+.theia-search-button-close:hover {
+    cursor: pointer;
+    background-color: var(--theia-editorHoverWidget-background);
+}
+
 .theia-search-button-next:hover:before {
     content: "\f107";
-    background-color: var(--theia-layout-color2);
 }
   
 .theia-search-button-previous:before {
@@ -57,7 +64,6 @@
 
 .theia-search-button-previous:hover:before {
     content: "\f106";
-    background-color: var(--theia-layout-color2);
 }
   
 .theia-search-button-close:before {
@@ -66,7 +72,6 @@
 
 .theia-search-button-close:hover:before {
     content: "\f00d";
-    background-color: var(--theia-layout-color2);
 }
 
 .theia-non-selectable {

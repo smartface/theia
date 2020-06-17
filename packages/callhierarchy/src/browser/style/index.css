@@ -16,7 +16,6 @@
 
 .theia-CallHierarchyTree {
     font-size: var(--theia-ui-font-size1);
-    color: var(--theia-ui-font-color1);
 }
 
 .theia-CallHierarchyTree .theia-TreeNode {
@@ -45,11 +44,11 @@
 }
 
 .theia-CallHierarchyTree .definitionNode .referenceCount {
-    color: var(--theia-ui-font-color3);
+    color: var(--theia-badge-background);
 }
 
 .theia-CallHierarchyTree .definitionNode .container {
-    color: var(--theia-ui-font-color2);
+    color: var(--theia-descriptionForeground);
 }
 
 .call-hierarchy-tab-icon::before {

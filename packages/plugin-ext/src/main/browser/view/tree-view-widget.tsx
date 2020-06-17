@@ -14,6 +14,7 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  ********************************************************************************/
 
+import { URI } from 'vscode-uri';
 import { injectable, inject, postConstruct } from 'inversify';
 import { TreeViewsExt, TreeViewSelection } from '../../../common/plugin-api-rpc';
 import { Command } from '../../../common/plugin-api-rpc-model';
@@ -27,8 +28,6 @@ import {
     TreeImpl,
     TREE_NODE_SEGMENT_CLASS,
     TREE_NODE_SEGMENT_GROW_CLASS,
-    FOLDER_ICON,
-    FILE_ICON,
     TREE_NODE_TAIL_CLASS,
     TreeModelImpl
 } from '@theia/core/lib/browser';
@@ -42,10 +41,11 @@ import { CommandRegistry } from '@theia/core/lib/common/command';
 import { Emitter } from '@theia/core/lib/common/event';
 import { MessageService } from '@theia/core/lib/common/message-service';
 import { View } from '../../../common/plugin-protocol';
+import CoreURI from '@theia/core/lib/common/uri';
 
 export const TREE_NODE_HYPERLINK = 'theia-TreeNodeHyperlink';
 export const VIEW_ITEM_CONTEXT_MENU: MenuPath = ['view-item-context-menu'];
-export const VIEW_ITEM_INLINE_MNUE: MenuPath = ['view-item-inline-menu'];
+export const VIEW_ITEM_INLINE_MENU: MenuPath = ['view-item-inline-menu'];
 
 export interface SelectionEventHandler {
     readonly node: SelectableTreeNode;
@@ -55,6 +55,11 @@ export interface SelectionEventHandler {
 export interface TreeViewNode extends SelectableTreeNode {
     contextValue?: string;
     command?: Command;
+    resourceUri?: string;
+    themeIconId?: 'folder' | 'file';
+    tooltip?: string;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    description?: string | boolean | any;
 }
 export namespace TreeViewNode {
     export function is(arg: TreeNode | undefined): arg is TreeViewNode {
@@ -63,6 +68,8 @@ export namespace TreeViewNode {
 }
 
 export interface CompositeTreeViewNode extends TreeViewNode, ExpandableTreeNode, CompositeTreeNode {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    description?: string | boolean | any;
 }
 export namespace CompositeTreeViewNode {
     export function is(arg: TreeNode | undefined): arg is CompositeTreeViewNode {
@@ -122,10 +129,14 @@ export class PluginTree extends TreeImpl {
 
     protected createTreeNode(item: TreeViewItem, parent: CompositeTreeNode): TreeNode {
         const icon = this.toIconClass(item);
-        const update = {
+        const resourceUri = item.resourceUri && URI.revive(item.resourceUri).toString();
+        const themeIconId = item.themeIconId ? item.themeIconId : item.collapsibleState !== TreeViewItemCollapsibleState.None ? 'folder' : 'file';
+        const update: Partial<TreeViewNode> = {
             name: item.label,
             icon,
             description: item.description,
+            themeIconId,
+            resourceUri,
             tooltip: item.tooltip,
             contextValue: item.contextValue
         };
@@ -163,12 +174,6 @@ export class PluginTree extends TreeImpl {
             const reference = this.sharedStyle.toIconClass(item.iconUrl);
             this.toDispose.push(reference);
             return reference.object.iconClass;
-        }
-        if (item.themeIconId) {
-            return item.themeIconId === 'folder' ? FOLDER_ICON : FILE_ICON;
-        }
-        if (item.resourceUri) {
-            return item.collapsibleState !== TreeViewItemCollapsibleState.None ? FOLDER_ICON : FILE_ICON;
         }
         return undefined;
     }
@@ -224,64 +229,65 @@ export class TreeViewWidget extends TreeWidget {
     }
 
     protected renderIcon(node: TreeNode, props: NodeProps): React.ReactNode {
-        if (node.icon) {
-            return <div className={node.icon + ' theia-tree-view-icon'}></div>;
+        const icon = this.toNodeIcon(node);
+        if (icon) {
+            return <div className={icon + ' theia-tree-view-icon'}></div>;
         }
         return undefined;
     }
 
-    protected renderCaption(node: TreeNode, props: NodeProps): React.ReactNode {
+    protected renderCaption(node: TreeViewNode, props: NodeProps): React.ReactNode {
         const classes = [TREE_NODE_SEGMENT_CLASS];
         if (!this.hasTrailingSuffixes(node)) {
             classes.push(TREE_NODE_SEGMENT_GROW_CLASS);
         }
         const className = classes.join(' ');
-        let attrs = this.decorateCaption(node, {
-            className, id: node.id
+        const title = node.tooltip ||
+            (node.resourceUri && this.labelProvider.getLongName(new CoreURI(node.resourceUri)))
+            || this.toNodeName(node);
+        const attrs = this.decorateCaption(node, {
+            className, id: node.id,
+            title
         });
-
-        if (node.description) {
-            attrs = {
-                ...attrs,
-                title: 'tooltip' in node ? node['tooltip'] : ''
-            };
-        }
 
         const children = this.getCaption(node);
         return React.createElement('div', attrs, ...children);
     }
 
-    protected getCaption(node: TreeNode): React.ReactNode[] {
+    protected getCaption(node: TreeNode): React.ReactNode {
         const nodes: React.ReactNode[] = [];
 
-        let work = node.name || '';
+        const name = this.toNodeName(node) || '';
+        const description = this.toNodeDescription(node);
+
+        let work = name;
 
         const regex = /\[([^\[]+)\]\(([^\)]+)\)/g;
         const matchResult = work.match(regex);
 
         if (matchResult) {
-            matchResult.forEach(match => {
-                const part = work.substring(0, work.indexOf(match));
-                nodes.push(part);
+            matchResult.forEach((match, index) => {
+                nodes.push(<span key={`m${index}`}>{work.substring(0, work.indexOf(match))}</span>);
 
-                const execResult = regex.exec(node.name);
-                const link = <a href={execResult![2]}
+                const execResult = regex.exec(name);
+                nodes.push(<a key={`l${index}`}
+                    href={execResult![2]}
                     target='_blank'
                     className={TREE_NODE_HYPERLINK}
-                    onClick={e => e.stopPropagation()}>{execResult![1]}</a >;
-                nodes.push(link);
+                    onClick={e => e.stopPropagation()}>{execResult![1]}</a>
+                );
 
                 work = work.substring(work.indexOf(match) + match.length);
             });
         }
 
-        nodes.push(<div>{work}</div>);
-        if (node.description) {
-            nodes.push(<div className='theia-tree-view-description'>
-                {node.description}
-            </div>);
-        }
-        return nodes;
+        return <div className='noWrapInfo'>
+            {...nodes}
+            {work && <span>{work}</span>}
+            {description && <span className='theia-tree-view-description'>
+                {description}
+            </span>}
+        </div>;
     }
 
     protected renderTailDecorations(node: TreeViewNode, props: NodeProps): React.ReactNode {
@@ -289,7 +295,7 @@ export class TreeViewWidget extends TreeWidget {
             return false;
         }
         return this.contextKeys.with({ view: this.id, viewItem: node.contextValue }, () => {
-            const menu = this.menus.getMenu(VIEW_ITEM_INLINE_MNUE);
+            const menu = this.menus.getMenu(VIEW_ITEM_INLINE_MENU);
             const arg = this.toTreeViewSelection(node);
             return <React.Fragment>
                 {menu.children.map((item, index) => item instanceof ActionMenuNode && this.renderInlineCommand(item, index, arg))}
@@ -301,7 +307,7 @@ export class TreeViewWidget extends TreeWidget {
         return { treeViewId: this.id, treeItemId: node.id };
     }
 
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     protected renderInlineCommand(node: ActionMenuNode, index: number, arg: any): React.ReactNode {
         const { icon } = node;
         if (!icon || !this.commands.isVisible(node.action.commandId, arg) || !this.contextKeys.match(node.action.when)) {
@@ -364,5 +370,26 @@ export class TreeViewWidget extends TreeWidget {
                 this.commands.executeCommand(treeNode.command.id, ...(treeNode.command.arguments || []));
             }
         }
+    }
+
+    private _message: string | undefined;
+    get message(): string | undefined {
+        return this._message;
+    }
+
+    set message(message: string | undefined) {
+        this._message = message;
+        this.update();
+    }
+
+    protected render(): React.ReactNode {
+        return React.createElement('div', this.createContainerAttributes(), this.renderSearchInfo(), this.renderTree(this.model));
+    }
+
+    protected renderSearchInfo(): React.ReactNode {
+        if (this._message) {
+            return <div className='theia-TreeViewInfo'>{this._message}</div>;
+        }
+        return undefined;
     }
 }

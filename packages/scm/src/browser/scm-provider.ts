@@ -14,7 +14,7 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  ********************************************************************************/
 
-// tslint:disable:no-any
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { Disposable, Event } from '@theia/core/lib/common';
 import URI from '@theia/core/lib/common/uri';
@@ -35,6 +35,7 @@ export interface ScmProvider extends Disposable {
     readonly amendSupport?: ScmAmendSupport;
 }
 
+export const ScmResourceGroup = Symbol('ScmResourceGroup');
 export interface ScmResourceGroup extends Disposable {
     readonly id: string;
     readonly label: string;
@@ -54,7 +55,6 @@ export interface ScmResource {
 }
 
 export interface ScmResourceDecorations {
-    icon?: string;
     tooltip?: string;
     source?: string;
     letter?: string;
@@ -65,16 +65,16 @@ export interface ScmCommand {
     title: string;
     tooltip?: string;
     command?: string;
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     arguments?: any[];
 }
 
 export interface ScmCommit {
-    id: string,  // eg Git sha or Mercurial revision number
-    summary: string,
-    authorName: string,
-    authorEmail: string,
-    authorDateRelative: string
+    readonly id: string;  // eg Git sha or Mercurial revision number
+    readonly summary: string;
+    readonly authorName: string;
+    readonly authorEmail: string;
+    readonly authorDateRelative: string;
 }
 
 export interface ScmAmendSupport {

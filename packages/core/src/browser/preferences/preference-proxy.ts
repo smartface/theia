@@ -14,7 +14,7 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  ********************************************************************************/
 
-// tslint:disable:no-any
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { Disposable, Event } from '../../common';
 import { PreferenceService } from './preference-service';
@@ -180,6 +180,24 @@ export function createPreferenceProxy<T>(preferences: PreferenceService, schema:
                     return createPreferenceProxy(preferences, schema, { prefix: newPrefix, resourceUri: opts.resourceUri, overrideIdentifier: opts.overrideIdentifier, style });
                 }
             }
+
+            let value;
+            let parentSegment = fullProperty;
+            const segments = [];
+            do {
+                const index = parentSegment.lastIndexOf('.');
+                segments.push(parentSegment.substring(index + 1));
+                parentSegment = parentSegment.substring(0, index);
+                if (parentSegment in schema.properties) {
+                    value = get(_, parentSegment);
+                }
+            } while (parentSegment && value === undefined);
+
+            let segment;
+            while (typeof value === 'object' && (segment = segments.pop())) {
+                value = value[segment];
+            }
+            return segments.length ? undefined : value;
         }
         return undefined;
     };

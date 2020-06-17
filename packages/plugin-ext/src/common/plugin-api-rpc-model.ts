@@ -17,7 +17,6 @@
 import * as theia from '@theia/plugin';
 import { UriComponents } from './uri-components';
 import { FileStat } from '@theia/filesystem/lib/common';
-import { SymbolInformation } from 'vscode-languageserver-types';
 
 // Should contains internal Plugin API types
 
@@ -96,18 +95,6 @@ export interface FileChangeEvent {
     type: FileChangeEventType
 }
 
-export interface FileMoveEvent {
-    subscriberId: string,
-    oldUri: UriComponents,
-    newUri: UriComponents
-}
-
-export interface FileWillMoveEvent {
-    subscriberId: string,
-    oldUri: UriComponents,
-    newUri: UriComponents
-}
-
 export type FileChangeEventType = 'created' | 'updated' | 'deleted';
 
 export enum CompletionTriggerKind {
@@ -136,7 +123,10 @@ export interface Completion {
     preselect?: boolean;
     insertText: string;
     insertTextRules?: CompletionItemInsertTextRule;
-    range: Range;
+    range?: Range | {
+        insert: Range;
+        replace: Range;
+    };
     commitCharacters?: string[];
     additionalTextEdits?: SingleEditOperation[];
     command?: Command;
@@ -156,7 +146,7 @@ export interface Command {
     id: string;
     title: string;
     tooltip?: string;
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     arguments?: any[];
 }
 
@@ -199,6 +189,10 @@ export interface CompletionDto extends Completion {
 
 export interface CompletionResultDto extends IdObject {
     id: number;
+    defaultRange: {
+        insert: Range,
+        replace: Range
+    }
     completions: CompletionDto[];
     incomplete?: boolean;
 }
@@ -300,21 +294,21 @@ export interface Location {
     range: Range;
 }
 
-export type Definition = Location | Location[];
+export type Definition = Location | Location[] | LocationLink[];
 
-export interface DefinitionLink {
+export interface LocationLink {
     uri: UriComponents;
     range: Range;
-    origin?: Range;
-    selectionRange?: Range;
+    originSelectionRange?: Range;
+    targetSelectionRange?: Range;
 }
 
 export interface DefinitionProvider {
-    provideDefinition(model: monaco.editor.ITextModel, position: monaco.Position, token: monaco.CancellationToken): Definition | DefinitionLink[] | undefined;
+    provideDefinition(model: monaco.editor.ITextModel, position: monaco.Position, token: monaco.CancellationToken): Definition | undefined;
 }
 
 export interface DeclarationProvider {
-    provideDeclaration(model: monaco.editor.ITextModel, position: monaco.Position, token: monaco.CancellationToken): Definition | DefinitionLink[] | undefined;
+    provideDeclaration(model: monaco.editor.ITextModel, position: monaco.Position, token: monaco.CancellationToken): Definition | undefined;
 }
 
 /**
@@ -414,10 +408,15 @@ export enum SymbolKind {
     TypeParameter = 25
 }
 
+export enum SymbolTag {
+    Deprecated = 1
+}
+
 export interface DocumentSymbol {
     name: string;
     detail: string;
     kind: SymbolKind;
+    tags: ReadonlyArray<SymbolTag>;
     containerName?: string;
     range: Range;
     selectionRange: Range;
@@ -444,11 +443,6 @@ export interface Breakpoint {
     readonly functionName?: string;
 }
 
-export interface WorkspaceSymbolProvider {
-    provideWorkspaceSymbols(params: WorkspaceSymbolParams, token: monaco.CancellationToken): Thenable<SymbolInformation[]>;
-    resolveWorkspaceSymbol(symbol: SymbolInformation, token: monaco.CancellationToken): Thenable<SymbolInformation>
-}
-
 export interface WorkspaceSymbolParams {
     query: string
 }
@@ -467,6 +461,10 @@ export class FoldingRangeKind {
     static readonly Imports = new FoldingRangeKind('imports');
     static readonly Region = new FoldingRangeKind('region');
     public constructor(public value: string) { }
+}
+
+export interface SelectionRange {
+    range: Range;
 }
 
 export interface Color {
@@ -504,4 +502,52 @@ export interface RenameLocation {
 export interface RenameProvider {
     provideRenameEdits(model: monaco.editor.ITextModel, position: Position, newName: string): PromiseLike<WorkspaceEdit & Rejection>;
     resolveRenameLocation?(model: monaco.editor.ITextModel, position: Position): PromiseLike<RenameLocation & Rejection>;
+}
+
+export interface CallHierarchyDefinition {
+    name: string;
+    kind: SymbolKind;
+    detail?: string;
+    uri: UriComponents;
+    range: Range;
+    selectionRange: Range;
+}
+
+export interface CallHierarchyReference {
+    callerDefinition: CallHierarchyDefinition,
+    references: Range[]
+}
+
+export interface CallHierarchyItem {
+    _sessionId?: string;
+    _itemId?: string;
+
+    kind: SymbolKind;
+    name: string;
+    detail?: string;
+    uri: UriComponents;
+    range: Range;
+    selectionRange: Range;
+}
+
+export interface CallHierarchyIncomingCall {
+    from: CallHierarchyItem;
+    fromRanges: Range[];
+}
+
+export interface CallHierarchyOutgoingCall {
+    to: CallHierarchyItem;
+    fromRanges: Range[];
+}
+
+export interface CreateFilesEventDTO {
+    files: UriComponents[]
+}
+
+export interface RenameFilesEventDTO {
+    files: { oldUri: UriComponents, newUri: UriComponents }[]
+}
+
+export interface DeleteFilesEventDTO {
+    files: UriComponents[]
 }

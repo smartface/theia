@@ -44,7 +44,11 @@
 		},
 		{
 			"scope": [
-				"constant.numeric"
+				"constant.numeric",
+				"entity.name.operator.custom-literal.number",
+				"variable.other.enummember",
+				"keyword.operator.plus.exponent",
+				"keyword.operator.minus.exponent"
 			],
 			"settings": {
 				"foreground": "#09885a"
@@ -143,8 +147,8 @@
 		},
 		{
 			"scope": [
-				"beginning.punctuation.definition.quote.markdown",
-				"beginning.punctuation.definition.list.markdown"
+				"punctuation.definition.quote.begin.markdown",
+				"punctuation.definition.list.begin.markdown"
 			],
 			"settings": {
 				"foreground": "#0451a5"
@@ -157,12 +161,6 @@
 			}
 		},
 		{
-			"scope": "meta.selector",
-			"settings": {
-				"foreground": "#800000"
-			}
-		},
-		{
 			"name": "brackets of XML/HTML tags",
 			"scope": "punctuation.definition.tag",
 			"settings": {
@@ -170,7 +168,10 @@
 			}
 		},
 		{
-			"scope": "meta.preprocessor",
+			"scope": [
+				"meta.preprocessor",
+				"entity.name.function.preprocessor"
+			],
 			"settings": {
 				"foreground": "#0000ff"
 			}
@@ -206,13 +207,20 @@
 			}
 		},
 		{
-			"scope": "storage.modifier",
+			"scope": [
+				"storage.modifier",
+				"keyword.operator.noexcept"
+			],
 			"settings": {
 				"foreground": "#0000ff"
 			}
 		},
 		{
-			"scope": "string",
+			"scope": [
+				"string",
+				"entity.name.operator.custom-literal.string",
+				"meta.embedded.assembly"
+			],
 			"settings": {
 				"foreground": "#a31515"
 			}
@@ -293,7 +301,9 @@
 			}
 		},
 		{
-			"scope": "support.type.property-name.json",
+			"scope": [
+				"support.type.property-name.json"
+			],
 			"settings": {
 				"foreground": "#0451a5"
 			}
@@ -322,8 +332,12 @@
 				"keyword.operator.expression",
 				"keyword.operator.cast",
 				"keyword.operator.sizeof",
+				"keyword.operator.alignof",
+				"keyword.operator.typeid",
+				"keyword.operator.alignas",
 				"keyword.operator.instanceof",
-				"keyword.operator.logical.python"
+				"keyword.operator.logical.python",
+				"keyword.operator.wordlike"
 			],
 			"settings": {
 				"foreground": "#0000ff"
@@ -372,36 +386,6 @@
 			"scope": "variable.language",
 			"settings": {
 				"foreground": "#0000ff"
-			}
-		},
-		{
-			"scope": "storage.modifier.static",
-			"settings": {
-				"fontStyle": "italic"
-			}
-		},
-		{
-			"scope": "storage.modifier.abstract",
-			"settings": {
-				"foreground": "#000000"
-			}
-		},
-		{
-			"scope": "invalid.deprecated",
-			"settings": {
-				"fontStyle": "italic underline"
-			}
-		},
-		{
-			"scope": "keyword.other.var",
-			"settings": {
-				"foreground": "#0000ff"
-			}
-		},
-		{
-			"scope": "variable.other.autoboxing.java",
-			"settings": {
-				"foreground": "#9f3918"
 			}
 		}
 	]

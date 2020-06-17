@@ -14,7 +14,7 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  ********************************************************************************/
 
-// tslint:disable:no-any
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { DisposableCollection, Emitter, Event, MessageService, ProgressService, WaitUntilEvent } from '@theia/core';
 import { LabelProvider } from '@theia/core/lib/browser';
@@ -32,10 +32,11 @@ import { DebugConfigurationManager } from './debug-configuration-manager';
 import { DebugSession, DebugState } from './debug-session';
 import { DebugSessionContributionRegistry, DebugSessionFactory } from './debug-session-contribution';
 import { DebugSessionOptions, InternalDebugSessionOptions } from './debug-session-options';
-import { DebugBreakpoint } from './model/debug-breakpoint';
 import { DebugStackFrame } from './model/debug-stack-frame';
 import { DebugThread } from './model/debug-thread';
 import { TaskIdentifier } from '@theia/task/lib/common';
+import { DebugSourceBreakpoint } from './model/debug-source-breakpoint';
+import { DebugFunctionBreakpoint } from './model/debug-function-breakpoint';
 
 export interface WillStartDebugSession extends WaitUntilEvent {
 }
@@ -387,23 +388,45 @@ export class DebugSessionManager {
         this.onDidDestroyDebugSessionEmitter.fire(session);
     }
 
-    getBreakpoints(session?: DebugSession): DebugBreakpoint[];
-    getBreakpoints(uri: URI, session?: DebugSession): DebugBreakpoint[];
-    getBreakpoints(arg?: URI | DebugSession, arg2?: DebugSession): DebugBreakpoint[] {
+    getFunctionBreakpoints(session: DebugSession | undefined = this.currentSession): DebugFunctionBreakpoint[] {
+        if (session && session.state > DebugState.Initializing) {
+            return session.getFunctionBreakpoints();
+        }
+        const { labelProvider, breakpoints, editorManager } = this;
+        return this.breakpoints.getFunctionBreakpoints().map(origin => new DebugFunctionBreakpoint(origin, { labelProvider, breakpoints, editorManager }));
+    }
+
+    getBreakpoints(session?: DebugSession): DebugSourceBreakpoint[];
+    getBreakpoints(uri: URI, session?: DebugSession): DebugSourceBreakpoint[];
+    getBreakpoints(arg?: URI | DebugSession, arg2?: DebugSession): DebugSourceBreakpoint[] {
         const uri = arg instanceof URI ? arg : undefined;
         const session = arg instanceof DebugSession ? arg : arg2 instanceof DebugSession ? arg2 : this.currentSession;
         if (session && session.state > DebugState.Initializing) {
-            return session.getBreakpoints(uri);
+            return session.getSourceBreakpoints(uri);
         }
-        return this.breakpoints.findMarkers({ uri }).map(({ data }) => new DebugBreakpoint(data, this.labelProvider, this.breakpoints, this.editorManager));
+        const { labelProvider, breakpoints, editorManager } = this;
+        return this.breakpoints.findMarkers({ uri }).map(({ data }) => new DebugSourceBreakpoint(data, { labelProvider, breakpoints, editorManager }));
     }
-    getBreakpoint(uri: URI, line: number): DebugBreakpoint | undefined {
+
+    getLineBreakpoints(uri: URI, line: number): DebugSourceBreakpoint[] {
         const session = this.currentSession;
         if (session && session.state > DebugState.Initializing) {
-            return session.getBreakpoints(uri).filter(breakpoint => breakpoint.line === line)[0];
+            return session.getSourceBreakpoints(uri).filter(breakpoint => breakpoint.line === line);
         }
-        const origin = this.breakpoints.getBreakpoint(uri, line);
-        return origin && new DebugBreakpoint(origin, this.labelProvider, this.breakpoints, this.editorManager);
+        const { labelProvider, breakpoints, editorManager } = this;
+        return this.breakpoints.getLineBreakpoints(uri, line).map(origin =>
+            new DebugSourceBreakpoint(origin, { labelProvider, breakpoints, editorManager })
+        );
+    }
+
+    getInlineBreakpoint(uri: URI, line: number, column: number): DebugSourceBreakpoint | undefined {
+        const session = this.currentSession;
+        if (session && session.state > DebugState.Initializing) {
+            return session.getSourceBreakpoints(uri).filter(breakpoint => breakpoint.line === line && breakpoint.column === column)[0];
+        }
+        const origin = this.breakpoints.getInlineBreakpoint(uri, line, column);
+        const { labelProvider, breakpoints, editorManager } = this;
+        return origin && new DebugSourceBreakpoint(origin, { labelProvider, breakpoints, editorManager });
     }
 
     /**

@@ -236,7 +236,19 @@ export class KeyCode {
         }
 
         const schema: KeyCodeSchema = {};
-        const keys = keybinding.trim().toLowerCase().split(/[-+]/g);
+        const keys = [];
+        let currentKey = '';
+        for (const character of keybinding.trim().toLowerCase()) {
+            if (currentKey && (character === '-' || character === '+')) {
+                keys.push(currentKey);
+                currentKey = '';
+            } else if (character !== '+') {
+                currentKey += character;
+            }
+        }
+        if (currentKey) {
+            keys.push(currentKey);
+        }
         /* If duplicates i.e ctrl+ctrl+a or alt+alt+b or b+alt+b it is invalid */
         if (keys.length !== new Set(keys).size) {
             throw new Error(`Can't parse keybinding ${keybinding} Duplicate modifiers`);
@@ -344,6 +356,15 @@ export namespace KeyCode {
                     return Key.INTL_BACKSLASH;
                 }
             }
+
+            // https://github.com/eclipse-theia/theia/issues/7315
+            if (code.startsWith('Numpad') && event.key && event.key.length > 1) {
+                const k = Key.getKey(event.key);
+                if (k) {
+                    return k;
+                }
+            }
+
             const key = Key.getKey(code);
             if (key) {
                 return key;
@@ -467,7 +488,7 @@ export namespace SpecialCases {
 
 export namespace Key {
 
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     export function isKey(arg: any): arg is Key {
         return typeof arg === 'object' && ('code' in arg) && ('keyCode' in arg);
     }
@@ -606,7 +627,7 @@ export namespace Key {
 
 }
 
-/*-------------------- Initialize the static key mappings --------------------*/
+/* -------------------- Initialize the static key mappings -------------------- */
 (() => {
     // Set the default key mappings from the constants in the Key namespace
     Object.keys(Key).map(prop => Reflect.get(Key, prop)).filter(key => Key.isKey(key)).forEach(key => {

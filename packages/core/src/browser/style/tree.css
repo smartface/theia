@@ -16,7 +16,6 @@
 
 .theia-Tree {
     overflow: hidden;
-    color: var(--theia-ui-font-color1);
     font-size: var(--theia-ui-font-size1);
     max-height: calc(100% - var(--theia-border-width));
     position: relative;
@@ -27,7 +26,7 @@
     outline-style: solid;
     outline-offset: -1px;
     opacity: 1 !important;
-    outline-color: var(--theia-accent-color3);
+    outline-color: var(--theia-focusBorder);
 }
 
 .theia-Tree:focus,
@@ -42,56 +41,66 @@
 }
 
 .theia-TreeNode {
-    line-height: 22px;
+    line-height: var(--theia-content-line-height);
     display: flex;
 }
 
 .theia-TreeNode:hover {
-    background: var(--theia-accent-color4);
+    background: var(--theia-list-hoverBackground);
+    color: var(--theia-list-hoverForeground);
     cursor: pointer;
 }
 
 .theia-TreeNodeContent {
     display: flex;
-    align-items: baseline;
+    align-items: center;
     width: calc(100% - var(--theia-scrollbar-rail-width));
 }
 
 .theia-ExpansionToggle {
-    padding-right: var(--theia-ui-padding);
-    min-width: 10px;
     display: flex;
     justify-content: center;
+    padding-left: calc(var(--theia-ui-padding)/2);
+    padding-right: calc(var(--theia-ui-padding)/2);
+    min-width: var(--theia-icon-size);
+    min-height: var(--theia-icon-size);
+    background-size: var(--theia-icon-size);
+    background: var(--theia-icon-chevron-right) center center no-repeat;
 }
 
-.theia-ExpansionToggle:hover {
+.theia-ExpansionToggle.theia-mod-busy {
+    background: var(--theia-icon-loading) center center no-repeat;
+    animation: theia-spin 1.25s linear infinite;
+}
+
+.theia-ExpansionToggle:not(.theia-mod-busy):hover {
     cursor: pointer;
 }
 
-.theia-ExpansionToggle.theia-mod-collapsed::before {
-    font-family: FontAwesome;
-    font-size: calc(var(--theia-content-font-size) * 0.8);
-    content: "\f0da";
-}
-
-.theia-ExpansionToggle:not(.theia-mod-collapsed)::before {
-    font-family: FontAwesome;
-    font-size: calc(var(--theia-content-font-size) * 0.8);
-    content: "\f0da";
-    transform: rotate(45deg);
+.theia-ExpansionToggle:not(.theia-mod-busy):not(.theia-mod-collapsed) {
+    transform: rotate(90deg);
 }
 
 .theia-Tree:focus .theia-TreeNode.theia-mod-selected,
 .theia-Tree .ReactVirtualized__List:focus .theia-TreeNode.theia-mod-selected {
-    background: var(--theia-accent-color3);
+    background: var(--theia-list-activeSelectionBackground);
+    color: var(--theia-list-activeSelectionForeground) !important;
+}
+
+.theia-Tree:focus .theia-TreeNode.theia-mod-selected .theia-TreeNodeTail,
+.theia-Tree .ReactVirtualized__List:focus .theia-TreeNode.theia-mod-selected .theia-TreeNodeTail,
+.theia-Tree:focus .theia-TreeNode.theia-mod-selected .theia-caption-suffix,
+.theia-Tree .ReactVirtualized__List:focus .theia-TreeNode.theia-mod-selected .theia-caption-suffix {
+    color: var(--theia-list-activeSelectionForeground) !important;
 }
 
 .theia-Tree .theia-TreeNode.theia-mod-selected {
-    background: var(--theia-layout-color4);
+    background: var(--theia-list-inactiveSelectionBackground);
+    color: var(--theia-list-inactiveSelectionForeground);
 }
 
 .theia-TreeNode.theia-mod-not-selectable {
-    color: var(--theia-ui-font-color2);
+    color: var(--theia-descriptionForeground);
 }
 .theia-TreeNode.theia-mod-not-selectable:hover {
     background: none;
@@ -117,14 +126,14 @@
 }
 
 .theia-TreeNodeSegment mark {
-    background-color: var(--theia-word-highlight-match-color1);
-    color: var(--theia-ui-font-color1);
+    background-color: var(--theia-list-filterMatchBackground);
+    color: var(--theia-list-inactiveSelectionForeground);
 }
 
 .theia-tree-source-node-placeholder {
     text-align: center;
     font-style: italic;
-    opacity: var(--theia-mod-disabled-opacity);;
+    opacity: var(--theia-mod-disabled-opacity);
 }
 
 .theia-tree-element-node {

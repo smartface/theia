@@ -19,11 +19,13 @@ import {
     CommandContribution,
     Command,
     CommandRegistry,
+    DisposableCollection,
     MenuContribution,
     MenuModelRegistry,
     isOSX,
     SelectionService,
-    Emitter, Event
+    Emitter,
+    Event
 } from '@theia/core/lib/common';
 import { QuickPickService } from '@theia/core/lib/common/quick-pick-service';
 import {
@@ -43,6 +45,9 @@ import URI from '@theia/core/lib/common/uri';
 import { MAIN_MENU_BAR } from '@theia/core';
 import { WorkspaceService } from '@theia/workspace/lib/browser';
 import { ContextKeyService } from '@theia/core/lib/browser/context-key-service';
+import { ColorContribution } from '@theia/core/lib/browser/color-application-contribution';
+import { ColorRegistry } from '@theia/core/lib/browser/color-registry';
+import { terminalAnsiColorMap } from './terminal-theme-service';
 
 export namespace TerminalMenus {
     export const TERMINAL = [...MAIN_MENU_BAR, '7_terminal'];
@@ -80,6 +85,43 @@ export namespace TerminalCommands {
         category: TERMINAL_CATEGORY,
         label: 'Split Terminal'
     };
+    export const TERMINAL_FIND_TEXT: Command = {
+        id: 'terminal:find',
+        category: TERMINAL_CATEGORY,
+        label: 'Find'
+    };
+    export const TERMINAL_FIND_TEXT_CANCEL: Command = {
+        id: 'terminal:find:cancel',
+        category: TERMINAL_CATEGORY,
+        label: 'Hide find widget'
+    };
+
+    export const SCROLL_LINE_UP: Command = {
+        id: 'terminal:scroll:line:up',
+        category: TERMINAL_CATEGORY,
+        label: 'Scroll line up'
+    };
+    export const SCROLL_LINE_DOWN: Command = {
+        id: 'terminal:scroll:line:down',
+        category: TERMINAL_CATEGORY,
+        label: 'Scroll line down'
+    };
+    export const SCROLL_TO_TOP: Command = {
+        id: 'terminal:scroll:top',
+        category: TERMINAL_CATEGORY,
+        label: 'Scroll to top'
+    };
+    export const SCROLL_PAGE_UP: Command = {
+        id: 'terminal:scroll:page:up',
+        category: TERMINAL_CATEGORY,
+        label: 'Scroll page up'
+    };
+    export const SCROLL_PAGE_DOWN: Command = {
+        id: 'terminal:scroll:page:down',
+        category: TERMINAL_CATEGORY,
+        label: 'Scroll page down'
+    };
+
     /**
      * Command that displays all terminals that are currently opened
      */
@@ -91,7 +133,7 @@ export namespace TerminalCommands {
 }
 
 @injectable()
-export class TerminalFrontendContribution implements TerminalService, CommandContribution, MenuContribution, KeybindingContribution, TabBarToolbarContribution {
+export class TerminalFrontendContribution implements TerminalService, CommandContribution, MenuContribution, KeybindingContribution, TabBarToolbarContribution, ColorContribution {
 
     constructor(
         @inject(ApplicationShell) protected readonly shell: ApplicationShell,
@@ -114,7 +156,7 @@ export class TerminalFrontendContribution implements TerminalService, CommandCon
     readonly onDidCreateTerminal: Event<TerminalWidget> = this.onDidCreateTerminalEmitter.event;
 
     protected readonly onDidChangeCurrentTerminalEmitter = new Emitter<TerminalWidget | undefined>();
-    readonly onDidChangeCurrentTerminal: Event<TerminalWidget | undefined> = this.onDidCreateTerminalEmitter.event;
+    readonly onDidChangeCurrentTerminal: Event<TerminalWidget | undefined> = this.onDidChangeCurrentTerminalEmitter.event;
 
     @inject(ContextKeyService)
     protected readonly contextKeyService: ContextKeyService;
@@ -126,6 +168,7 @@ export class TerminalFrontendContribution implements TerminalService, CommandCon
             if (widget instanceof TerminalWidget) {
                 this.updateCurrentTerminal();
                 this.onDidCreateTerminalEmitter.fire(widget);
+                this.setLastUsedTerminal(widget);
             }
         });
 
@@ -154,12 +197,68 @@ export class TerminalFrontendContribution implements TerminalService, CommandCon
         }
     }
 
+    // IDs of the most recently used terminals
+    protected mostRecentlyUsedTerminalEntries: { id: string, disposables: DisposableCollection }[] = [];
+
+    protected getLastUsedTerminalId(): string | undefined {
+        const mostRecent = this.mostRecentlyUsedTerminalEntries[this.mostRecentlyUsedTerminalEntries.length - 1];
+        if (mostRecent) {
+            return mostRecent.id;
+        }
+    }
+
+    get lastUsedTerminal(): TerminalWidget | undefined {
+        const id = this.getLastUsedTerminalId();
+        if (id) {
+            return this.getById(id);
+        }
+    }
+
+    protected setLastUsedTerminal(lastUsedTerminal: TerminalWidget): void {
+        const lastUsedTerminalId = lastUsedTerminal.id;
+        const entryIndex = this.mostRecentlyUsedTerminalEntries.findIndex(entry => entry.id === lastUsedTerminalId);
+        let toDispose: DisposableCollection | undefined;
+        if (entryIndex >= 0) {
+            toDispose = this.mostRecentlyUsedTerminalEntries[entryIndex].disposables;
+            this.mostRecentlyUsedTerminalEntries.splice(entryIndex, 1);
+        } else {
+            toDispose = new DisposableCollection();
+            toDispose.push(
+                lastUsedTerminal.onDidChangeVisibility((isVisible: boolean) => {
+                    if (isVisible) {
+                        this.setLastUsedTerminal(lastUsedTerminal);
+                    }
+                })
+            );
+            toDispose.push(
+                lastUsedTerminal.onDidDispose(() => {
+                    const index = this.mostRecentlyUsedTerminalEntries.findIndex(entry => entry.id === lastUsedTerminalId);
+                    if (index >= 0) {
+                        this.mostRecentlyUsedTerminalEntries[index].disposables.dispose();
+                        this.mostRecentlyUsedTerminalEntries.splice(index, 1);
+                    }
+                })
+            );
+        }
+
+        const newEntry = { id: lastUsedTerminalId, disposables: toDispose };
+        if (lastUsedTerminal.isVisible) {
+            this.mostRecentlyUsedTerminalEntries.push(newEntry);
+        } else {
+            this.mostRecentlyUsedTerminalEntries = [newEntry, ...this.mostRecentlyUsedTerminalEntries];
+        }
+    }
+
     get all(): TerminalWidget[] {
         return this.widgetManager.getWidgets(TERMINAL_WIDGET_FACTORY_ID) as TerminalWidget[];
     }
 
     getById(id: string): TerminalWidget | undefined {
         return this.all.find(terminal => terminal.id === id);
+    }
+
+    getByTerminalId(terminalId: number): TerminalWidget | undefined {
+        return this.all.find(terminal => terminal.terminalId === terminalId);
     }
 
     getDefaultShell(): Promise<string> {
@@ -186,22 +285,89 @@ export class TerminalFrontendContribution implements TerminalService, CommandCon
         });
 
         commands.registerCommand(TerminalCommands.TERMINAL_CONTEXT, new UriAwareCommandHandler<URI>(this.selectionService, {
-            execute: async uri => {
-                // Determine folder path of URI
-                const stat = await this.fileSystem.getFileStat(uri.toString());
-                if (!stat) {
-                    return;
-                }
-
-                // Use folder if a file was selected
-                const cwd = (stat.isDirectory) ? uri.toString() : uri.parent.toString();
-
-                // Open terminal
-                const termWidget = await this.newTerminal({ cwd });
-                termWidget.start();
-                this.activateTerminal(termWidget);
-            }
+            execute: uri => this.openInTerminal(uri)
         }));
+
+        commands.registerCommand(TerminalCommands.TERMINAL_FIND_TEXT);
+        commands.registerHandler(TerminalCommands.TERMINAL_FIND_TEXT.id, {
+            isEnabled: () => {
+                if (this.shell.activeWidget instanceof TerminalWidget) {
+                    return !this.shell.activeWidget.getSearchBox().isVisible;
+                }
+                return false;
+            },
+            execute: () => {
+                const termWidget = (this.shell.activeWidget as TerminalWidget);
+                const terminalSearchBox = termWidget.getSearchBox();
+                terminalSearchBox.show();
+            }
+        });
+        commands.registerCommand(TerminalCommands.TERMINAL_FIND_TEXT_CANCEL);
+        commands.registerHandler(TerminalCommands.TERMINAL_FIND_TEXT_CANCEL.id, {
+            isEnabled: () => {
+                if (this.shell.activeWidget instanceof TerminalWidget) {
+                    return this.shell.activeWidget.getSearchBox().isVisible;
+                }
+                return false;
+            },
+            execute: () => {
+                const termWidget = (this.shell.activeWidget as TerminalWidget);
+                const terminalSearchBox = termWidget.getSearchBox();
+                terminalSearchBox.hide();
+            }
+        });
+
+        commands.registerCommand(TerminalCommands.SCROLL_LINE_UP, {
+            isEnabled: () => this.shell.activeWidget instanceof TerminalWidget,
+            isVisible: () => false,
+            execute: () => {
+                (this.shell.activeWidget as TerminalWidget).scrollLineUp();
+            }
+        });
+        commands.registerCommand(TerminalCommands.SCROLL_LINE_DOWN, {
+            isEnabled: () => this.shell.activeWidget instanceof TerminalWidget,
+            isVisible: () => false,
+            execute: () => {
+                (this.shell.activeWidget as TerminalWidget).scrollLineDown();
+            }
+        });
+        commands.registerCommand(TerminalCommands.SCROLL_TO_TOP, {
+            isEnabled: () => this.shell.activeWidget instanceof TerminalWidget,
+            isVisible: () => false,
+            execute: () => {
+                (this.shell.activeWidget as TerminalWidget).scrollToTop();
+            }
+        });
+        commands.registerCommand(TerminalCommands.SCROLL_PAGE_UP, {
+            isEnabled: () => this.shell.activeWidget instanceof TerminalWidget,
+            isVisible: () => false,
+            execute: () => {
+                (this.shell.activeWidget as TerminalWidget).scrollPageUp();
+            }
+        });
+        commands.registerCommand(TerminalCommands.SCROLL_PAGE_DOWN, {
+            isEnabled: () => this.shell.activeWidget instanceof TerminalWidget,
+            isVisible: () => false,
+            execute: () => {
+                (this.shell.activeWidget as TerminalWidget).scrollPageDown();
+            }
+        });
+    }
+
+    async openInTerminal(uri: URI): Promise<void> {
+        // Determine folder path of URI
+        const stat = await this.fileSystem.getFileStat(uri.toString());
+        if (!stat) {
+            return;
+        }
+
+        // Use folder if a file was selected
+        const cwd = (stat.isDirectory) ? uri.toString() : uri.parent.toString();
+
+        // Open terminal
+        const termWidget = await this.newTerminal({ cwd });
+        termWidget.start();
+        this.activateTerminal(termWidget);
     }
 
     registerMenus(menus: MenuModelRegistry): void {
@@ -231,20 +397,6 @@ export class TerminalFrontendContribution implements TerminalService, CommandCon
     }
 
     registerKeybindings(keybindings: KeybindingRegistry): void {
-        keybindings.registerKeybinding({
-            command: TerminalCommands.NEW.id,
-            keybinding: 'ctrl+shift+`'
-        });
-        keybindings.registerKeybinding({
-            command: TerminalCommands.NEW_ACTIVE_WORKSPACE.id,
-            keybinding: 'ctrl+`'
-        });
-        keybindings.registerKeybinding({
-            command: TerminalCommands.TERMINAL_CLEAR.id,
-            keybinding: 'ctrlcmd+k',
-            context: TerminalKeybindingContexts.terminalActive
-        });
-
         /* Register passthrough keybindings for combinations recognized by
            xterm.js and converted to control characters.
 
@@ -328,6 +480,55 @@ export class TerminalFrontendContribution implements TerminalService, CommandCon
                 context: TerminalKeybindingContexts.terminalActive
             });
         }
+
+        keybindings.registerKeybinding({
+            command: TerminalCommands.NEW.id,
+            keybinding: 'ctrl+shift+`'
+        });
+        keybindings.registerKeybinding({
+            command: TerminalCommands.NEW_ACTIVE_WORKSPACE.id,
+            keybinding: 'ctrl+`'
+        });
+        keybindings.registerKeybinding({
+            command: TerminalCommands.TERMINAL_CLEAR.id,
+            keybinding: 'ctrlcmd+k',
+            context: TerminalKeybindingContexts.terminalActive
+        });
+        keybindings.registerKeybinding({
+            command: TerminalCommands.TERMINAL_FIND_TEXT.id,
+            keybinding: 'ctrlcmd+f',
+            context: TerminalKeybindingContexts.terminalActive
+        });
+        keybindings.registerKeybinding({
+            command: TerminalCommands.TERMINAL_FIND_TEXT_CANCEL.id,
+            keybinding: 'esc',
+            context: TerminalKeybindingContexts.terminalHideSearch
+        });
+        keybindings.registerKeybinding({
+            command: TerminalCommands.SCROLL_LINE_UP.id,
+            keybinding: 'ctrl+shift+up',
+            context: TerminalKeybindingContexts.terminalActive
+        });
+        keybindings.registerKeybinding({
+            command: TerminalCommands.SCROLL_LINE_DOWN.id,
+            keybinding: 'ctrl+shift+down',
+            context: TerminalKeybindingContexts.terminalActive
+        });
+        keybindings.registerKeybinding({
+            command: TerminalCommands.SCROLL_TO_TOP.id,
+            keybinding: 'shift-home',
+            context: TerminalKeybindingContexts.terminalActive
+        });
+        keybindings.registerKeybinding({
+            command: TerminalCommands.SCROLL_PAGE_UP.id,
+            keybinding: 'shift-pageUp',
+            context: TerminalKeybindingContexts.terminalActive
+        });
+        keybindings.registerKeybinding({
+            command: TerminalCommands.SCROLL_PAGE_DOWN.id,
+            keybinding: 'shift-pageDown',
+            context: TerminalKeybindingContexts.terminalActive
+        });
     }
 
     async newTerminal(options: TerminalWidgetOptions): Promise<TerminalWidget> {
@@ -365,7 +566,7 @@ export class TerminalFrontendContribution implements TerminalService, CommandCon
     protected async selectTerminalCwd(): Promise<string | undefined> {
         const roots = this.workspaceService.tryGetRoots();
         return this.quickPick.show(roots.map(
-            ({ uri }) => ({ label: this.labelProvider.getLongName(new URI(uri)), value: uri })
+            ({ uri }) => ({ label: this.labelProvider.getName(new URI(uri)), description: this.labelProvider.getLongName(new URI(uri)), value: uri })
         ), { placeholder: 'Select current working directory for new terminal' });
     }
 
@@ -393,4 +594,65 @@ export class TerminalFrontendContribution implements TerminalService, CommandCon
         termWidget.start();
         this.open(termWidget, { widgetOptions: options });
     }
+
+    /**
+     * It should be aligned with https://code.visualstudio.com/api/references/theme-color#integrated-terminal-colors
+     */
+    registerColors(colors: ColorRegistry): void {
+        colors.register({
+            id: 'terminal.background',
+            defaults: {
+                dark: 'panel.background',
+                light: 'panel.background',
+                hc: 'panel.background'
+            },
+            description: 'The background color of the terminal, this allows coloring the terminal differently to the panel.'
+        });
+        colors.register({
+            id: 'terminal.foreground',
+            defaults: {
+                light: '#333333',
+                dark: '#CCCCCC',
+                hc: '#FFFFFF'
+            },
+            description: 'The foreground color of the terminal.'
+        });
+        colors.register({
+            id: 'terminalCursor.foreground',
+            description: 'The foreground color of the terminal cursor.'
+        });
+        colors.register({
+            id: 'terminalCursor.background',
+            description: 'The background color of the terminal cursor. Allows customizing the color of a character overlapped by a block cursor.'
+        });
+        colors.register({
+            id: 'terminal.selectionBackground',
+            defaults: {
+                light: '#00000040',
+                dark: '#FFFFFF40',
+                hc: '#FFFFFF80'
+            },
+            description: 'The selection background color of the terminal.'
+        });
+        colors.register({
+            id: 'terminal.border',
+            defaults: {
+                light: 'panel.border',
+                dark: 'panel.border',
+                hc: 'panel.border'
+            },
+            description: 'The color of the border that separates split panes within the terminal. This defaults to panel.border.'
+        });
+        // eslint-disable-next-line guard-for-in
+        for (const id in terminalAnsiColorMap) {
+            const entry = terminalAnsiColorMap[id];
+            const colorName = id.substring(13);
+            colors.register({
+                id,
+                defaults: entry.defaults,
+                description: `'${colorName}'  ANSI color in the terminal.`
+            });
+        }
+    }
+
 }

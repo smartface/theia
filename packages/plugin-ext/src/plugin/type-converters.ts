@@ -16,14 +16,18 @@
 
 import * as theia from '@theia/plugin';
 import { Position as P, Range as R, SymbolInformation, SymbolKind as S } from 'vscode-languageserver-types';
-import URI from 'vscode-uri';
+import { URI } from 'vscode-uri';
 import * as rpc from '../common/plugin-api-rpc';
-import { DecorationOptions, EditorPosition, PickOpenItem, Plugin, Position, ResourceFileEditDto, ResourceTextEditDto, Selection, TaskDto, WorkspaceEditDto } from '../common/plugin-api-rpc';
+import {
+    DecorationOptions, EditorPosition, PickOpenItem, Plugin, Position, ResourceFileEditDto,
+    ResourceTextEditDto, Selection, TaskDto, WorkspaceEditDto
+} from '../common/plugin-api-rpc';
 import * as model from '../common/plugin-api-rpc-model';
-import { LanguageFilter, LanguageSelector, RelativePattern } from './languages';
+import { LanguageFilter, LanguageSelector, RelativePattern } from '@theia/languages/lib/common/language-selector';
 import { isMarkdownString, MarkdownString } from './markdown-string';
 import { Item } from './quick-open';
 import * as types from './types-impl';
+import { UriComponents } from '../common/uri-components';
 
 const SIDE_GROUP = -2;
 const ACTIVE_GROUP = -1;
@@ -135,7 +139,7 @@ export function toPosition(position: Position): types.Position {
     return new types.Position(position.lineNumber - 1, position.column - 1);
 }
 
-// tslint:disable-next-line:no-any
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function isDecorationOptions(something: any): something is theia.DecorationOptions {
     return (typeof something.range !== 'undefined');
 }
@@ -162,7 +166,7 @@ export function fromRangeOrRangeWithMessage(ranges: theia.Range[] | theia.Decora
             return {
                 range: fromRange(r.range)!,
                 hoverMessage: hoverMessage,
-                // tslint:disable-next-line:no-any
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 renderOptions: <any> /* URI vs Uri */r.renderOptions
             };
         });
@@ -183,7 +187,7 @@ interface Codeblock {
     value: string;
 }
 
-// tslint:disable-next-line:no-any
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function isCodeblock(thing: any): thing is Codeblock {
     return thing && typeof thing === 'object'
         && typeof (<Codeblock>thing).language === 'string'
@@ -409,12 +413,12 @@ export function fromLocation(location: theia.Location): model.Location {
     };
 }
 
-export function fromDefinitionLink(definitionLink: theia.DefinitionLink): model.DefinitionLink {
-    return <model.DefinitionLink>{
+export function fromDefinitionLink(definitionLink: theia.DefinitionLink): model.LocationLink {
+    return <model.LocationLink>{
         uri: definitionLink.targetUri,
         range: fromRange(definitionLink.targetRange),
-        origin: definitionLink.originSelectionRange ? fromRange(definitionLink.originSelectionRange) : undefined,
-        selectionRange: definitionLink.targetSelectionRange ? fromRange(definitionLink.targetSelectionRange) : undefined
+        originSelectionRange: definitionLink.originSelectionRange ? fromRange(definitionLink.originSelectionRange) : undefined,
+        targetSelectionRange: definitionLink.targetSelectionRange ? fromRange(definitionLink.targetSelectionRange) : undefined
     };
 }
 
@@ -495,7 +499,7 @@ export namespace SignatureHelp {
     }
 }
 
-// tslint:disable-next-line:no-any
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function fromWorkspaceEdit(value: theia.WorkspaceEdit, documents?: any): WorkspaceEditDto {
     const result: WorkspaceEditDto = {
         edits: []
@@ -515,7 +519,6 @@ export function fromWorkspaceEdit(value: theia.WorkspaceEdit, documents?: any): 
 }
 
 export namespace SymbolKind {
-    // tslint:disable-next-line:no-null-keyword
     const fromMapping: { [kind: number]: model.SymbolKind } = Object.create(null);
     fromMapping[model.SymbolKind.File] = model.SymbolKind.File;
     fromMapping[model.SymbolKind.Module] = model.SymbolKind.Module;
@@ -563,6 +566,7 @@ export function fromDocumentSymbol(info: theia.DocumentSymbol): model.DocumentSy
         name: info.name,
         detail: info.detail,
         range: fromRange(info.range)!,
+        tags: info.tags ? info.tags.map(fromSymbolTag) : [],
         selectionRange: fromRange(info.selectionRange)!,
         kind: SymbolKind.fromSymbolKind(info.kind)
     };
@@ -577,10 +581,115 @@ export function toDocumentSymbol(symbol: model.DocumentSymbol): theia.DocumentSy
         name: symbol.name,
         detail: symbol.detail,
         range: toRange(symbol.range)!,
+        tags: symbol.tags && symbol.tags.length > 0 ? symbol.tags.map(toSymbolTag) : [],
         selectionRange: toRange(symbol.selectionRange)!,
         children: symbol.children ? symbol.children.map(toDocumentSymbol) : [],
         kind: SymbolKind.toSymbolKind(symbol.kind)
     };
+}
+
+export function fromSymbolTag(kind: types.SymbolTag): model.SymbolTag {
+    switch (kind) {
+        case types.SymbolTag.Deprecated: return model.SymbolTag.Deprecated;
+    }
+}
+
+export function toSymbolTag(kind: model.SymbolTag): types.SymbolTag {
+    switch (kind) {
+        case model.SymbolTag.Deprecated: return types.SymbolTag.Deprecated;
+    }
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function isModelLocation(thing: any): thing is model.Location {
+    if (!thing) {
+        return false;
+    }
+    return isModelRange((<model.Location>thing).range) &&
+        isUriComponents((<model.Location>thing).uri);
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function isModelRange(thing: any): thing is model.Range {
+    if (!thing) {
+        return false;
+    }
+    return (('startLineNumber' in thing) && typeof thing.startLineNumber === 'number') &&
+        (('startColumn' in thing) && typeof thing.startColumn === 'number') &&
+        (('endLineNumber' in thing) && typeof thing.endLineNumber === 'number') &&
+        (('endColumn' in thing) && typeof thing.endColumn === 'number');
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function isUriComponents(thing: any): thing is UriComponents {
+    if (!thing) {
+        return false;
+    }
+    return (('scheme' in thing) && typeof thing.scheme === 'string') &&
+        (('path' in thing) && typeof thing.path === 'string') &&
+        (('query' in thing) && typeof thing.query === 'string') &&
+        (('fragment' in thing) && typeof thing.fragment === 'string');
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function isModelCallHierarchyItem(thing: any): thing is model.CallHierarchyItem {
+    if (!thing) {
+        return false;
+    }
+    return false;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function isModelCallHierarchyIncomingCall(thing: any): thing is model.CallHierarchyIncomingCall {
+    if (!thing) {
+        return false;
+    }
+    return false;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function isModelCallHierarchyOutgoingCall(thing: any): thing is model.CallHierarchyOutgoingCall {
+    if (!thing) {
+        return false;
+    }
+    return false;
+}
+
+export function toLocation(value: model.Location): types.Location {
+    return new types.Location(URI.revive(value.uri), toRange(value.range));
+}
+
+export function fromCallHierarchyItem(item: theia.CallHierarchyItem): model.CallHierarchyItem {
+    return <model.CallHierarchyItem>{
+        kind: SymbolKind.fromSymbolKind(item.kind),
+        name: item.name,
+        detail: item.detail,
+        uri: item.uri,
+        range: fromRange(item.range),
+        selectionRange: fromRange(item.selectionRange)
+    };
+}
+
+export function toCallHierarchyItem(value: model.CallHierarchyItem): types.CallHierarchyItem {
+    return new types.CallHierarchyItem(
+        SymbolKind.toSymbolKind(value.kind),
+        value.name,
+        value.detail ? value.detail : '',
+        URI.revive(value.uri),
+        toRange(value.range),
+        toRange(value.selectionRange));
+}
+
+export function toCallHierarchyIncomingCall(value: model.CallHierarchyIncomingCall): types.CallHierarchyIncomingCall {
+    return new types.CallHierarchyIncomingCall(
+        toCallHierarchyItem(value.from),
+        value.fromRanges && value.fromRanges.map(toRange));
+}
+
+export function toCallHierarchyOutgoingCall(value: model.CallHierarchyOutgoingCall): types.CallHierarchyOutgoingCall {
+    return new types.CallHierarchyOutgoingCall(
+        toCallHierarchyItem(value.to),
+        value.fromRanges && value.fromRanges.map(toRange));
 }
 
 export function toWorkspaceFolder(folder: model.WorkspaceFolder): theia.WorkspaceFolder {
@@ -599,7 +708,11 @@ export function fromTask(task: theia.Task): TaskDto | undefined {
     const taskDto = {} as TaskDto;
     taskDto.label = task.name;
     taskDto.source = task.source;
-    taskDto.scope = typeof task.scope === 'object' ? task.scope.uri.toString() : undefined;
+    if (typeof task.scope === 'object') {
+        taskDto.scope = task.scope.uri.toString();
+    } else if (typeof task.scope === 'number') {
+        taskDto.scope = task.scope;
+    }
 
     const taskDefinition = task.definition;
     if (!taskDefinition) {
@@ -639,13 +752,15 @@ export function toTask(taskDto: TaskDto): theia.Task {
     const result = {} as theia.Task;
     result.name = label;
     result.source = source;
-    if (scope) {
+    if (typeof scope === 'string') {
         const uri = URI.parse(scope);
         result.scope = {
             uri,
             name: uri.toString(),
             index: 0
         };
+    } else {
+        result.scope = scope;
     }
 
     const taskType = type;
@@ -749,9 +864,9 @@ export function getShellArgs(args: undefined | (string | theia.ShellQuotedString
     return result;
 }
 
-// tslint:disable-next-line:no-any
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function getShellExecutionOptions(options: theia.ShellExecutionOptions): { [key: string]: any } {
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const result = {} as { [key: string]: any };
 
     const env = options.env;
@@ -818,6 +933,10 @@ export function toSymbolInformation(symbolInformation: SymbolInformation): theia
             range: symbolInformation.location.range
         }
     };
+}
+
+export function fromSelectionRange(selectionRange: theia.SelectionRange): model.SelectionRange {
+    return { range: fromRange(selectionRange.range) };
 }
 
 export function fromFoldingRange(foldingRange: theia.FoldingRange): model.FoldingRange {

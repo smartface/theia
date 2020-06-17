@@ -24,6 +24,7 @@ import {
     FrontendApplicationContribution, PreferenceServiceImpl, PreferenceScope, PreferenceSchemaProvider
 } from '@theia/core/lib/browser';
 import { Deferred } from '@theia/core/lib/common/promise-util';
+import { EnvVariablesServer } from '@theia/core/lib/common/env-variables';
 import { ILogger, Disposable, DisposableCollection, Emitter, Event, MaybePromise } from '@theia/core';
 import { WorkspacePreferences } from './workspace-preferences';
 import * as jsoncparser from 'jsonc-parser';
@@ -64,6 +65,9 @@ export class WorkspaceService implements FrontendApplicationContribution {
 
     @inject(PreferenceSchemaProvider)
     protected readonly schemaProvider: PreferenceSchemaProvider;
+
+    @inject(EnvVariablesServer)
+    protected readonly envVariableServer: EnvVariablesServer;
 
     protected applicationName: string;
 
@@ -376,8 +380,7 @@ export class WorkspaceService implements FrontendApplicationContribution {
     }
 
     protected async getUntitledWorkspace(): Promise<URI | undefined> {
-        const home = await this.fileSystem.getCurrentUserHome();
-        return home && getTemporaryWorkspaceFileUri(new URI(home.uri));
+        return getTemporaryWorkspaceFileUri(this.envVariableServer);
     }
 
     private async writeWorkspaceFile(workspaceFile: FileStat | undefined, workspaceData: WorkspaceData): Promise<FileStat | undefined> {
@@ -424,7 +427,8 @@ export class WorkspaceService implements FrontendApplicationContribution {
             if (uriStr.endsWith('/')) {
                 uriStr = uriStr.slice(0, -1);
             }
-            const fileStat = await this.fileSystem.getFileStat(uriStr);
+            const normalizedUriStr = new URI(uriStr).normalizePath().toString();
+            const fileStat = await this.fileSystem.getFileStat(normalizedUriStr);
             if (!fileStat) {
                 return undefined;
             }
@@ -596,7 +600,7 @@ export interface WorkspaceInput {
 
 export interface WorkspaceData {
     folders: Array<{ path: string, name?: string }>;
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     settings?: { [id: string]: any };
 }
 
@@ -625,12 +629,12 @@ export namespace WorkspaceData {
         required: ['folders']
     });
 
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     export function is(data: any): data is WorkspaceData {
         return !!validateSchema(data);
     }
 
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     export function buildWorkspaceData(folders: string[] | FileStat[], settings: { [id: string]: any } | undefined): WorkspaceData {
         let roots: string[] = [];
         if (folders.length > 0) {

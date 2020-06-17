@@ -14,7 +14,8 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  ********************************************************************************/
 
-// tslint:disable:no-any
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/* tslint:disable:typedef */
 
 import * as theia from '@theia/plugin';
 import { CommandRegistryImpl } from './command-registry';
@@ -64,6 +65,7 @@ import {
     DiagnosticSeverity,
     DiagnosticTag,
     Location,
+    LogLevel,
     Progress,
     ProgressOptions,
     ProgressLocation,
@@ -83,6 +85,7 @@ import {
     TreeItem,
     TreeItemCollapsibleState,
     DocumentSymbol,
+    SymbolTag,
     WorkspaceEdit,
     SymbolInformation,
     FileType,
@@ -102,6 +105,7 @@ import {
     FunctionBreakpoint,
     FoldingRange,
     FoldingRangeKind,
+    SelectionRange,
     Color,
     ColorInformation,
     ColorPresentation,
@@ -110,22 +114,26 @@ import {
     FileSystemError,
     CommentThreadCollapsibleState,
     QuickInputButtons,
-    CommentMode
+    CommentMode,
+    CallHierarchyItem,
+    CallHierarchyIncomingCall,
+    CallHierarchyOutgoingCall
 } from './types-impl';
 import { SymbolKind } from '../common/plugin-api-rpc-model';
 import { EditorsAndDocumentsExtImpl } from './editors-and-documents';
 import { TextEditorsExtImpl } from './text-editors';
 import { DocumentsExtImpl } from './documents';
-import Uri from 'vscode-uri';
+import { URI as Uri } from 'vscode-uri';
 import { TextEditorCursorStyle } from '../common/editor-options';
 import { PreferenceRegistryExtImpl } from './preference-registry';
 import { OutputChannelRegistryExtImpl } from './output-channel-registry';
 import { TerminalServiceExtImpl, TerminalExtImpl } from './terminal-ext';
-import { LanguagesExtImpl, score } from './languages';
+import { LanguagesExtImpl } from './languages';
 import { fromDocumentSelector, pluginToPluginInfo } from './type-converters';
 import { DialogsExtImpl } from './dialogs';
 import { NotificationExtImpl } from './notification';
 import { CancellationToken } from '@theia/core/lib/common/cancellation';
+import { score } from '@theia/languages/lib/common/language-selector';
 import { MarkdownString } from './markdown-string';
 import { TreeViewsExtImpl } from './tree/tree-views';
 import { LanguagesContributionExtImpl } from './languages-contribution-ext';
@@ -176,11 +184,20 @@ export function createAPIFactory(
 
     return function (plugin: InternalPlugin): typeof theia {
         const commands: typeof theia.commands = {
-            // tslint:disable-next-line:no-any
-            registerCommand(command: theia.CommandDescription, handler?: <T>(...args: any[]) => T | Thenable<T | undefined>, thisArg?: any): Disposable {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            registerCommand(command: theia.CommandDescription | string, handler?: <T>(...args: any[]) => T | Thenable<T | undefined>, thisArg?: any): Disposable {
+                // use of the ID when registering commands
+                if (typeof command === 'string') {
+                    const rawCommands = plugin.rawModel.contributes && plugin.rawModel.contributes.commands;
+                    const contributedCommands = rawCommands ? Array.isArray(rawCommands) ? rawCommands : [rawCommands] : undefined;
+                    if (handler && contributedCommands && contributedCommands.some(item => item.command === command)) {
+                        return commandRegistry.registerHandler(command, handler, thisArg);
+                    }
+                    return commandRegistry.registerCommand({ id: command }, handler, thisArg);
+                }
                 return commandRegistry.registerCommand(command, handler, thisArg);
             },
-            // tslint:disable-next-line:no-any
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             executeCommand<T>(commandId: string, ...args: any[]): PromiseLike<T | undefined> {
                 return commandRegistry.executeCommand<T>(commandId, ...args);
             },
@@ -204,7 +221,7 @@ export function createAPIFactory(
                     });
                 });
             },
-            // tslint:disable-next-line:no-any
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             registerHandler(commandId: string, handler: (...args: any[]) => any, thisArg?: any): Disposable {
                 return commandRegistry.registerHandler(commandId, handler, thisArg);
             },
@@ -239,42 +256,38 @@ export function createAPIFactory(
                 return terminalExt.terminals;
             },
             onDidChangeActiveTerminal,
-            // tslint:disable-next-line:typedef
             onDidChangeActiveTextEditor(listener, thisArg?, disposables?) {
                 return editors.onDidChangeActiveTextEditor(listener, thisArg, disposables);
             },
-            // tslint:disable-next-line:typedef
             onDidChangeVisibleTextEditors(listener, thisArg?, disposables?) {
                 return editors.onDidChangeVisibleTextEditors(listener, thisArg, disposables);
             },
-            // tslint:disable-next-line:typedef
             onDidChangeTextEditorSelection(listener, thisArg?, disposables?) {
                 return editors.onDidChangeTextEditorSelection(listener, thisArg, disposables);
             },
-            // tslint:disable-next-line:typedef
             onDidChangeTextEditorOptions(listener, thisArg?, disposables?) {
                 return editors.onDidChangeTextEditorOptions(listener, thisArg, disposables);
             },
-            // tslint:disable-next-line:typedef
             onDidChangeTextEditorViewColumn(listener, thisArg?, disposables?) {
                 return editors.onDidChangeTextEditorViewColumn(listener, thisArg, disposables);
             },
-            // tslint:disable-next-line:typedef
             onDidChangeTextEditorVisibleRanges(listener, thisArg?, disposables?) {
                 return editors.onDidChangeTextEditorVisibleRanges(listener, thisArg, disposables);
             },
             async showTextDocument(documentArg: theia.TextDocument | Uri,
-                optionsArg?: theia.TextDocumentShowOptions | theia.ViewColumn,
+                columnOrOptions?: theia.TextDocumentShowOptions | theia.ViewColumn,
                 preserveFocus?: boolean
             ): Promise<theia.TextEditor> {
                 let documentOptions: theia.TextDocumentShowOptions | undefined;
                 const uri: Uri = documentArg instanceof Uri ? documentArg : documentArg.uri;
-                if (optionsArg) {
-                    // tslint:disable-next-line:no-any
-                    const optionsAny: any = optionsArg;
-                    if (optionsAny.preserveFocus || optionsAny.preview || optionsAny.selection || optionsAny.viewColumn) {
-                        documentOptions = optionsArg as theia.TextDocumentShowOptions;
-                    }
+                if (typeof columnOrOptions === 'number') {
+                    documentOptions = {
+                        viewColumn: columnOrOptions
+                    };
+                } else if (columnOrOptions && (columnOrOptions.preserveFocus || columnOrOptions.preview || columnOrOptions.selection || columnOrOptions.viewColumn)) {
+                    documentOptions = {
+                        ...columnOrOptions
+                    };
                 }
                 if (preserveFocus) {
                     if (documentOptions) {
@@ -291,15 +304,9 @@ export function createAPIFactory(
                     throw new Error(`Failed to show text document ${documentArg.toString()}`);
                 }
             },
-            // tslint:disable-next-line:no-any
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             showQuickPick(items: any, options: theia.QuickPickOptions, token?: theia.CancellationToken): any {
-                if (token) {
-                    const coreEvent = Object.assign(token.onCancellationRequested, { maxListeners: 0 });
-                    const coreCancellationToken = { isCancellationRequested: token.isCancellationRequested, onCancellationRequested: coreEvent };
-                    return quickOpenExt.showQuickPick(items, options, coreCancellationToken);
-                } else {
-                    return quickOpenExt.showQuickPick(items, options);
-                }
+                return quickOpenExt.showQuickPick(items, options, token);
             },
             createQuickPick<T extends QuickPickItem>(): QuickPick<T> {
                 return quickOpenExt.createQuickPick(plugin);
@@ -319,18 +326,12 @@ export function createAPIFactory(
             showUploadDialog(options: theia.UploadDialogOptions): PromiseLike<Uri[] | undefined> {
                 return dialogsExt.showUploadDialog(options);
             },
-            // tslint:disable-next-line:no-any
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             setStatusBarMessage(text: string, arg?: number | PromiseLike<any>): Disposable {
                 return statusBarMessageRegistryExt.setStatusBarMessage(text, arg);
             },
             showInputBox(options?: theia.InputBoxOptions, token?: theia.CancellationToken): PromiseLike<string | undefined> {
-                if (token) {
-                    const coreEvent = Object.assign(token.onCancellationRequested, { maxListeners: 0 });
-                    const coreCancellationToken = { isCancellationRequested: token.isCancellationRequested, onCancellationRequested: coreEvent };
-                    return quickOpenExt.showInput(options, coreCancellationToken);
-                } else {
-                    return quickOpenExt.showInput(options);
-                }
+                return quickOpenExt.showInput(options, token);
             },
             createStatusBarItem(alignment?: theia.StatusBarAlignment, priority?: number): theia.StatusBarItem {
                 return statusBarMessageRegistryExt.createStatusBarItem(alignment, priority);
@@ -386,6 +387,11 @@ export function createAPIFactory(
         };
 
         const workspace: typeof theia.workspace = {
+
+            get fs(): theia.FileSystem {
+                return fileSystemExt.fs;
+            },
+
             get rootPath(): string | undefined {
                 return workspaceExt.rootPath;
             },
@@ -401,25 +407,38 @@ export function createAPIFactory(
             get textDocuments(): theia.TextDocument[] {
                 return documents.getAllDocumentData().map(data => data.document);
             },
-            // tslint:disable-next-line:typedef
             onDidChangeTextDocument(listener, thisArg?, disposables?) {
                 return documents.onDidChangeDocument(listener, thisArg, disposables);
             },
-            // tslint:disable-next-line:typedef
             onDidCloseTextDocument(listener, thisArg?, disposables?) {
                 return documents.onDidRemoveDocument(listener, thisArg, disposables);
             },
-            // tslint:disable-next-line:typedef
             onDidOpenTextDocument(listener, thisArg?, disposables?) {
                 return documents.onDidAddDocument(listener, thisArg, disposables);
             },
-            // tslint:disable-next-line:typedef
             onWillSaveTextDocument(listener, thisArg?, disposables?) {
                 return documents.onWillSaveTextDocument(listener, thisArg, disposables);
             },
-            // tslint:disable-next-line:typedef
             onDidSaveTextDocument(listener, thisArg?, disposables?) {
                 return documents.onDidSaveTextDocument(listener, thisArg, disposables);
+            },
+            onWillCreateFiles(listener, thisArg?, disposables?) {
+                return workspaceExt.onWillCreateFiles(listener, thisArg, disposables);
+            },
+            onDidCreateFiles(listener, thisArg?, disposables?) {
+                return workspaceExt.onDidCreateFiles(listener, thisArg, disposables);
+            },
+            onWillRenameFiles(listener, thisArg?, disposables?) {
+                return workspaceExt.onWillRenameFiles(listener, thisArg, disposables);
+            },
+            onDidRenameFiles(listener, thisArg?, disposables?) {
+                return workspaceExt.onDidRenameFiles(listener, thisArg, disposables);
+            },
+            onWillDeleteFiles(listener, thisArg?, disposables?) {
+                return workspaceExt.onWillDeleteFiles(listener, thisArg, disposables);
+            },
+            onDidDeleteFiles(listener, thisArg?, disposables?) {
+                return workspaceExt.onDidDeleteFiles(listener, thisArg, disposables);
             },
             getConfiguration(section?, resource?): theia.WorkspaceConfiguration {
                 return preferenceRegistryExt.getConfiguration(section, resource);
@@ -480,15 +499,9 @@ export function createAPIFactory(
             registerTaskProvider(type: string, provider: theia.TaskProvider): theia.Disposable {
                 return tasks.registerTaskProvider(type, provider);
             },
-            // Experimental API https://github.com/eclipse-theia/theia/issues/4167
-            onDidRenameFile(listener, thisArg?, disposables?): theia.Disposable {
-                return workspaceExt.onDidRenameFile(listener, thisArg, disposables);
-            },
-            onWillRenameFile(listener, thisArg?, disposables?): theia.Disposable {
-                return workspaceExt.onWillRenameFile(listener, thisArg, disposables);
-            }
         };
 
+        const onDidChangeLogLevel = new Emitter<theia.LogLevel>();
         const env: typeof theia.env = Object.freeze({
             get appName(): string { return envExt.appName; },
             get appRoot(): string { return envExt.appRoot; },
@@ -515,7 +528,9 @@ export function createAPIFactory(
             },
             asExternalUri(target: theia.Uri): PromiseLike<theia.Uri> {
                 return windowStateExt.asExternalUri(target);
-            }
+            },
+            get logLevel(): theia.LogLevel { return LogLevel.Info; },
+            get onDidChangeLogLevel(): theia.Event<theia.LogLevel> { return onDidChangeLogLevel.event; }
         });
 
         const languageServer: typeof theia.languageServer = {
@@ -535,14 +550,13 @@ export function createAPIFactory(
                 return languagesExt.changeLanguage(document.uri, languageId);
             },
             match(selector: theia.DocumentSelector, document: theia.TextDocument): number {
-                return score(fromDocumentSelector(selector), document.uri, document.languageId, true);
+                return score(fromDocumentSelector(selector), document.uri.scheme, document.uri.path, document.languageId, true);
             },
             get onDidChangeDiagnostics(): theia.Event<theia.DiagnosticChangeEvent> {
                 return languagesExt.onDidChangeDiagnostics;
             },
-            // tslint:disable-next-line:typedef
             getDiagnostics(resource?: Uri) {
-                // tslint:disable-next-line:no-any
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 return <any>languagesExt.getDiagnostics(resource);
             },
             createDiagnosticCollection(name?: string): theia.DiagnosticCollection {
@@ -625,17 +639,23 @@ export function createAPIFactory(
             registerFoldingRangeProvider(selector: theia.DocumentSelector, provider: theia.FoldingRangeProvider): theia.Disposable {
                 return languagesExt.registerFoldingRangeProvider(selector, provider, pluginToPluginInfo(plugin));
             },
+            registerSelectionRangeProvider(selector: theia.DocumentSelector, provider: theia.SelectionRangeProvider): theia.Disposable {
+                return languagesExt.registerSelectionRangeProvider(selector, provider, pluginToPluginInfo(plugin));
+            },
             registerRenameProvider(selector: theia.DocumentSelector, provider: theia.RenameProvider): theia.Disposable {
                 return languagesExt.registerRenameProvider(selector, provider, pluginToPluginInfo(plugin));
             },
+            registerCallHierarchyProvider(selector: theia.DocumentSelector, provider: theia.CallHierarchyProvider): theia.Disposable {
+                return languagesExt.registerCallHierarchyProvider(selector, provider);
+            }
         };
 
         const plugins: typeof theia.plugins = {
-            // tslint:disable-next-line:no-any
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             get all(): theia.Plugin<any>[] {
                 return pluginManager.getAllPlugins().map(plg => new Plugin(pluginManager, plg));
             },
-            // tslint:disable-next-line:no-any
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             getPlugin(pluginId: string): theia.Plugin<any> | undefined {
                 const plg = pluginManager.getPluginById(pluginId.toLowerCase());
                 if (plg) {
@@ -712,19 +732,15 @@ export function createAPIFactory(
             get taskExecutions(): ReadonlyArray<theia.TaskExecution> {
                 return tasksExt.taskExecutions;
             },
-            // tslint:disable-next-line:typedef
             onDidStartTask(listener, thisArg?, disposables?) {
                 return tasksExt.onDidStartTask(listener, thisArg, disposables);
             },
-            // tslint:disable-next-line:typedef
             onDidEndTask(listener, thisArg?, disposables?) {
                 return tasksExt.onDidEndTask(listener, thisArg, disposables);
             },
-            // tslint:disable-next-line:typedef
             onDidStartTaskProcess(listener, thisArg?, disposables?) {
                 return tasksExt.onDidStartTaskProcess(listener, thisArg, disposables);
             },
-            // tslint:disable-next-line:typedef
             onDidEndTaskProcess(listener, thisArg?, disposables?) {
                 return tasksExt.onDidEndTaskProcess(listener, thisArg, disposables);
             }
@@ -808,6 +824,7 @@ export function createAPIFactory(
             DiagnosticSeverity,
             DiagnosticRelatedInformation,
             Location,
+            LogLevel,
             DiagnosticTag,
             Diagnostic,
             CompletionTriggerKind,
@@ -832,6 +849,7 @@ export function createAPIFactory(
             TreeItem2: TreeItem,
             TreeItemCollapsibleState,
             SymbolKind,
+            SymbolTag,
             DocumentSymbol,
             WorkspaceEdit,
             SymbolInformation,
@@ -854,13 +872,17 @@ export function createAPIFactory(
             ColorInformation,
             ColorPresentation,
             FoldingRange,
+            SelectionRange,
             FoldingRangeKind,
             OperatingSystem,
             WebviewPanelTargetArea,
             FileSystemError,
             CommentThreadCollapsibleState,
             QuickInputButtons,
-            CommentMode
+            CommentMode,
+            CallHierarchyItem,
+            CallHierarchyIncomingCall,
+            CallHierarchyOutgoingCall
         };
     };
 }
@@ -868,7 +890,7 @@ export function createAPIFactory(
 class Plugin<T> implements theia.Plugin<T> {
     id: string;
     pluginPath: string;
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     packageJSON: any;
     pluginType: theia.PluginType;
     constructor(private readonly pluginManager: PluginManager, plugin: InternalPlugin) {

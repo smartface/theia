@@ -27,10 +27,95 @@ export enum DependsOrder {
     Parallel = 'parallel',
 }
 
+export enum RevealKind {
+    Always,
+    Silent,
+    Never
+}
+
+export enum PanelKind {
+    Shared,
+    Dedicated,
+    New
+}
+
+export interface TaskOutputPresentation {
+    echo?: boolean;
+    focus?: boolean;
+    reveal?: RevealKind;
+    panel?: PanelKind;
+    showReuseMessage?: boolean;
+    clear?: boolean;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    [name: string]: any;
+}
+export namespace TaskOutputPresentation {
+    export function getDefault(): TaskOutputPresentation {
+        return {
+            echo: true,
+            reveal: RevealKind.Always,
+            focus: false,
+            panel: PanelKind.Shared,
+            showReuseMessage: true,
+            clear: false
+        };
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    export function fromJson(task: any): TaskOutputPresentation {
+        let outputPresentation = getDefault();
+        if (task && task.presentation) {
+            if (task.presentation.reveal) {
+                let reveal = RevealKind.Always;
+                if (task.presentation.reveal === 'silent') {
+                    reveal = RevealKind.Silent;
+                } else if (task.presentation.reveal === 'never') {
+                    reveal = RevealKind.Never;
+                }
+                outputPresentation = { ...outputPresentation, reveal };
+            }
+            if (task.presentation.panel) {
+                let panel = PanelKind.Shared;
+                if (task.presentation.panel === 'dedicated') {
+                    panel = PanelKind.Dedicated;
+                } else if (task.presentation.panel === 'new') {
+                    panel = PanelKind.New;
+                }
+                outputPresentation = { ...outputPresentation, panel };
+            }
+            outputPresentation = {
+                ...outputPresentation,
+                echo: task.presentation.echo === undefined || task.presentation.echo,
+                focus: shouldSetFocusToTerminal(task),
+                showReuseMessage: shouldShowReuseMessage(task),
+                clear: shouldClearTerminalBeforeRun(task)
+            };
+        }
+        return outputPresentation;
+    }
+
+    export function shouldAlwaysRevealTerminal(task: TaskCustomization): boolean {
+        return !task.presentation || task.presentation.reveal === undefined || task.presentation.reveal === RevealKind.Always;
+    }
+
+    export function shouldSetFocusToTerminal(task: TaskCustomization): boolean {
+        return !!task.presentation && !!task.presentation.focus;
+    }
+
+    export function shouldClearTerminalBeforeRun(task: TaskCustomization): boolean {
+        return !!task.presentation && !!task.presentation.clear;
+    }
+
+    export function shouldShowReuseMessage(task: TaskCustomization): boolean {
+        return !task.presentation || task.presentation.showReuseMessage === undefined || !!task.presentation.showReuseMessage;
+    }
+}
+
 export interface TaskCustomization {
     type: string;
     group?: 'build' | 'test' | 'none' | { kind: 'build' | 'test' | 'none', isDefault: true };
     problemMatcher?: string | ProblemMatcherContribution | (string | ProblemMatcherContribution)[];
+    presentation?: TaskOutputPresentation;
 
     /** Whether the task is a background task or not. */
     isBackground?: boolean;
@@ -41,7 +126,7 @@ export interface TaskCustomization {
     /** The order the dependsOn tasks should be executed in. */
     dependsOrder?: DependsOrder;
 
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     [name: string]: any;
 }
 export namespace TaskCustomization {
@@ -62,15 +147,17 @@ export namespace TaskCustomization {
     }
 }
 
+export enum TaskScope {
+    Workspace,
+    Global
+}
+
+export type TaskConfigurationScope = string | TaskScope.Workspace | TaskScope.Global;
+
 export interface TaskConfiguration extends TaskCustomization {
     /** A label that uniquely identifies a task configuration per source */
     readonly label: string;
-    /**
-     * For a provided task, it is the string representation of the URI where the task is supposed to run from. It is `undefined` for global tasks.
-     * For a configured task, it is workspace URI that task belongs to.
-     * This field is not supposed to be used in `tasks.json`
-     */
-    readonly _scope: string | undefined;
+    readonly _scope: TaskConfigurationScope;
 }
 
 export interface ContributedTaskConfiguration extends TaskConfiguration {
@@ -99,7 +186,7 @@ export interface TaskInfo {
     /** task config used for launching a task */
     readonly config: TaskConfiguration,
     /** Additional properties specific for a particular Task Runner. */
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     readonly [key: string]: any;
 }
 
@@ -126,7 +213,7 @@ export interface TaskServer extends JsonRpcServer<TaskClient> {
 export interface TaskCustomizationData {
     type: string;
     problemMatcher?: ProblemMatcher[];
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     [name: string]: any;
 }
 
@@ -144,6 +231,9 @@ export interface TaskExitedEvent {
     readonly signal?: string;
 
     readonly config?: TaskConfiguration;
+
+    readonly terminalId?: number;
+    readonly processId?: number;
 }
 
 export interface TaskOutputEvent {
@@ -154,6 +244,7 @@ export interface TaskOutputEvent {
 
 export interface TaskOutputProcessedEvent {
     readonly taskId: number;
+    readonly config: TaskConfiguration;
     readonly ctx?: string;
     readonly problems?: ProblemMatch[];
 }
@@ -191,6 +282,7 @@ export interface WatchingMatcherContribution {
 }
 
 export interface ProblemMatcherContribution {
+    base?: string;
     name?: string;
     label: string;
     deprecated?: boolean;

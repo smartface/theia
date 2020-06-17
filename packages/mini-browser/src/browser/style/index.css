@@ -15,7 +15,7 @@
  ********************************************************************************/
 
 :root {
-    --theia-private-mini-browser-height: 22px;
+    --theia-private-mini-browser-height: var(--theia-content-line-height);
 }
 
 .theia-mini-browser {
@@ -45,31 +45,31 @@
     padding: 0 10px;
 }
 
-.theia-mini-browser-toolbar input {
+.theia-mini-browser-toolbar .theia-input {
     width: 100%;
     line-height: var(--theia-private-mini-browser-height);
     margin-left: 4px;
     margin-right: 4px;
 }
 
-.theia-mini-browser-toolbar-read-only input {
+.theia-mini-browser-toolbar-read-only .theia-input {
     width: 100%;
     line-height: var(--theia-private-mini-browser-height);
     margin-left: 4px;
     margin-right: 4px;
     cursor: pointer;
-    background: var(--theia-layout-color0);
+    background: var(--theia-input-background);
     border: none;
     text-decoration: underline;
     outline: none;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    color: var(--theia-ui-button-color);
+    color: var(--theia-input-foreground);
 }
 
-.theia-mini-browser-toolbar-read-only input:hover {
-    color: var(--theia-ui-button-color-hover);
+.theia-mini-browser-toolbar-read-only .theia-input:hover {
+    color: var(--theia-button-hoverBackground);
 }
 
 .theia-mini-browser-button {
@@ -78,16 +78,16 @@
     flex-grow: 0;
     font-family: FontAwesome;
     font-size: calc(var(--theia-content-font-size) * 0.8);
-    color: var(--theia-ui-font-color1);
+    color: var(--theia-icon-foreground);
     margin: 0px 4px 0px 4px;
 }
 
 .theia-mini-browser-button:not(.theia-mini-browser-button-disabled):hover {
-    color: var(--theia-ui-font-color2);
+    cursor: pointer;
 }
 
 .theia-mini-browser-button-disabled {
-    color: var(--theia-disabled-color0);
+    opacity: var(--theia-mod-disabled-opacity);
 }
 
 .theia-mini-browser-previous::before {
@@ -128,7 +128,7 @@
     bottom: 0;
     left: 0;
     z-index: 10;
-    background: var(--theia-layout-color3);
+    background: var(--theia-editor-background);
     background-image: var(--theia-preloader);
     background-size: 60px 60px;
     background-repeat: no-repeat;
@@ -143,8 +143,8 @@
 .theia-mini-browser-error-bar {
     height: 19px;
     padding-left: var(--theia-ui-padding);
-    background-color: var(--theia-warn-color0);
-    color: var(--theia-warn-font-color0);
+    background-color: var(--theia-inputValidation-errorBorder);
+    color: var(--theia-editor-foreground);
     font-size: var(--theia-statusBar-font-size);
     z-index: 1000; /* Above the transparent overlay (`z-index: 999;`). */
 }

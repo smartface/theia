@@ -134,7 +134,7 @@ export class MiniBrowserOpenHandler extends NavigatableWidgetOpenHandler<MiniBro
             // Decorate it with a few properties inferred from the URI.
             const startPage = uri.toString(true);
             const name = this.labelProvider.getName(uri);
-            const iconClass = `${await this.labelProvider.getIcon(uri)} file-icon`;
+            const iconClass = `${this.labelProvider.getIcon(uri)} file-icon`;
             // The background has to be reset to white only for "real" web-pages but not for images, for instance.
             const resetBackground = await this.resetBackground(uri);
             result = {
@@ -159,7 +159,12 @@ export class MiniBrowserOpenHandler extends NavigatableWidgetOpenHandler<MiniBro
 
     protected resetBackground(uri: URI): MaybePromise<boolean> {
         const { scheme } = uri;
-        return scheme === 'http' || scheme === 'https' || (scheme === 'file' && uri.toString().endsWith('.html'));
+        const uriStr = uri.toString();
+        return scheme === 'http'
+            || scheme === 'https'
+            || (scheme === 'file'
+                && (uriStr.endsWith('html') || uriStr.endsWith('.htm'))
+            );
     }
 
     protected async defaultOptions(): Promise<MiniBrowserOpenerOptions & { widgetOptions: ApplicationShell.WidgetOptions }> {

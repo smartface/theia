@@ -15,10 +15,12 @@
  ********************************************************************************/
 
 import URI from '@theia/core/lib/common/uri';
+import { EnvVariablesServer } from '@theia/core/lib/common/env-variables';
 
 export const THEIA_EXT = 'theia-workspace';
 export const VSCODE_EXT = 'code-workspace';
 
-export function getTemporaryWorkspaceFileUri(home: URI): URI {
-    return home.resolve('.theia').resolve(`Untitled.${THEIA_EXT}`).withScheme('file');
+export async function getTemporaryWorkspaceFileUri(envVariableServer: EnvVariablesServer): Promise<URI> {
+    const configDirUri = await envVariableServer.getConfigDirUri();
+    return new URI(configDirUri).resolve(`Untitled.${THEIA_EXT}`);
 }

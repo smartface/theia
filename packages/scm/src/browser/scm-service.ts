@@ -14,13 +14,14 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  ********************************************************************************/
 
-// tslint:disable:no-any
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { DisposableCollection, Emitter } from '@theia/core/lib/common';
 import { injectable, inject } from 'inversify';
 import { ScmContextKeyService } from './scm-context-key-service';
 import { ScmRepository, ScmProviderOptions } from './scm-repository';
 import { ScmCommand, ScmProvider } from './scm-provider';
+import URI from '@theia/core/lib/common/uri';
 
 @injectable()
 export class ScmService {
@@ -65,15 +66,20 @@ export class ScmService {
         }
         this.toDisposeOnSelected.dispose();
         this._selectedRepository = repository;
-        this.updateContextKeys();
         if (this._selectedRepository) {
-            this.toDisposeOnSelected.push(this._selectedRepository.onDidChange(() => this.updateContextKeys()));
             if (this._selectedRepository.provider.onDidChangeStatusBarCommands) {
                 this.toDisposeOnSelected.push(this._selectedRepository.provider.onDidChangeStatusBarCommands(() => this.fireDidChangeStatusBarCommands()));
             }
         }
         this.onDidChangeSelectedRepositoryEmitter.fire(this._selectedRepository);
         this.fireDidChangeStatusBarCommands();
+    }
+
+    findRepository(uri: URI): ScmRepository | undefined {
+        const reposSorted = this.repositories.sort(
+            (ra: ScmRepository, rb: ScmRepository) => rb.provider.rootUri.length - ra.provider.rootUri.length
+        );
+        return reposSorted.find(repo => new URI(repo.provider.rootUri).isEqualOrParent(uri));
     }
 
     registerScmProvider(provider: ScmProvider, options: ScmProviderOptions = {}): ScmRepository {
@@ -97,16 +103,6 @@ export class ScmService {
             this.selectedRepository = repository;
         }
         return repository;
-    }
-
-    protected updateContextKeys(): void {
-        if (this._selectedRepository) {
-            this.contextKeys.scmProvider.set(this._selectedRepository.provider.id);
-            this.contextKeys.scmResourceGroup.set(this._selectedRepository.selectedResource && this._selectedRepository.selectedResource.group.id);
-        } else {
-            this.contextKeys.scmProvider.reset();
-            this.contextKeys.scmResourceGroup.reset();
-        }
     }
 
 }

@@ -14,13 +14,7 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  ********************************************************************************/
 
- :root {
-  --theia-current-search-match-color: var(--theia-word-highlight-color0);
-  --theia-range-highlight: var(--theia-word-highlight-color1);
- }
-
 .t-siw-search-container {
-    color: var(--theia-ui-font-color1);
     padding: 5px ;
     display: flex;
     flex-direction: column;
@@ -33,21 +27,16 @@
     min-width: 6px;
 }
 
-.t-siw-search-container input[type="text"] {
+.t-siw-search-container .theia-input {
     flex: 1;
     line-height: var(--theia-content-line-height);
-    font-size: var(--theia-ui-font-size1);
     padding-left: 8px;
-    color: var(--theia-ui-font-color1);
     padding: 3px 0 3px 4px;
-}
-
-.t-siw-search-container input[type="text"]:focus {
-    outline: none;
 }
 
 .t-siw-search-container #search-input-field:focus {
     border: none;
+    outline: none;
 }
 
 .t-siw-search-container #search-input-field {
@@ -61,19 +50,19 @@
 }
 
 .t-siw-search-container .searchHeader .controls.button-container {
-    height: 22px;
+    height: var(--theia-content-line-height);
     margin-bottom: 5px;
 }
 
 .t-siw-search-container .searchHeader .search-field-container {
-    background: var(--theia-layout-color2);
+    background: var(--theia-input-background);
     border-style: solid;
     border-width: var(--theia-border-width);
-    border-color: var(--theia-border-color1);
+    border-color: var(--theia-input-background);
 }
 
 .t-siw-search-container .searchHeader .search-field-container.focused {
-    border-color: var(--theia-accent-color3);
+    border-color: var(--theia-focusBorder);
 }
 
 .t-siw-search-container .searchHeader .search-field {
@@ -83,6 +72,7 @@
 
 .t-siw-search-container .searchHeader .search-field:focus {
     border: none;
+    outline: none;
 }
 
 .t-siw-search-container .searchHeader .search-field .option {
@@ -91,7 +81,8 @@
 }
 
 .t-siw-search-container .searchHeader .search-field .option.enabled {
-    border: var(--theia-border-width) var(--theia-accent-color3) solid;
+    border: var(--theia-border-width) var(--theia-inputOption-activeBorder) solid;
+    background-color: var(--theia-inputOption-activeBackground);
 }
 
 .t-siw-search-container .searchHeader .search-field .option:hover {
@@ -121,7 +112,7 @@
     border-style: solid;
     border-width: var(--theia-border-width);
     margin: -1px;
-    border-color: var(--theia-warn-color0);
+    border-color: var(--theia-inputValidation-warningBorder);
 }
 
 .t-siw-search-container .searchHeader .search-field-container .search-notification {
@@ -136,13 +127,13 @@
 }
 
 .t-siw-search-container .searchHeader .search-notification div{
-    background-color: var(--theia-warn-color0);
+    background-color: var(--theia-inputValidation-warningBackground);
     width: calc(100% + 2px);
     margin-left: -1px;
-    color: var(--theia-warn-font-color0);
+    color: var(--theia-inputValidation-warningForeground);
     z-index: 1000;
     position: absolute;
-    border: 1px solid var(--theia-warn-color0);
+    border: 1px solid var(--theia-inputValidation-warningBorder);
     box-sizing: border-box;
     padding: 3px;
 }
@@ -220,19 +211,8 @@
     display:flex;
 }
 
-.t-siw-search-container .result .result-head .result-no {
-    background: var(--theia-ui-expand-button-color);
-    padding: 3px 8px;
-    border-radius: 7px;
-    font-size: var(--theia-ui-font-size0);
-}
-
-.t-siw-search-container .result .result-head .expand-icon {
-    margin: 0 3px;
-    width: 7px;
-}
-
-.t-siw-search-container .result .result-head .file-icon {
+.t-siw-search-container .result .result-head .fa,
+.t-siw-search-container .result .result-head .theia-file-icons-js {
     margin: 0 3px;
 }
 
@@ -241,46 +221,55 @@
 }
 
 .t-siw-search-container .result .result-head .file-path {
-    color: var(--theia-ui-font-color2);
+    color: var(--theia-descriptionForeground);
     font-size: var(--theia-ui-font-size0);
     margin-left: 3px;
 }
 
 .t-siw-search-container .resultLine .match {
-    background: var(--theia-word-highlight-match-color1);
     line-height: normal;
     white-space: pre;
+    background: var(--theia-editor-findMatchHighlightBackground);
+    border: 1px solid var(--theia-editor-findMatchHighlightBorder);
+}
+.theia-hc .t-siw-search-container .resultLine .match {
+    border-style: dashed;
 }
 
 .t-siw-search-container .resultLine .match.strike-through {
     text-decoration: line-through;
+    background: var(--theia-diffEditor-removedTextBackground);
+    border-color: var(--theia-diffEditor-removedTextBorder);
 }
 
-.t-siw-search-container .resultLine.selected .match {
-    background: var(--theia-word-highlight-match-color1);
-}
 .t-siw-search-container .resultLine .replace-term {
-    background: var(--theia-word-highlight-replace-color0);
+    background: var(--theia-diffEditor-insertedTextBackground);
+    border: 1p solid var(--theia-diffEditor-insertedTextBorder);
+}
+.theia-hc
+.t-siw-search-container .resultLine .replace-term {
+    border-style: dashed;
 }
 
 .t-siw-search-container .noWrapInfo {
     width: 100%;
 }
 
-.result-head-info {
+.t-siw-search-container .result-head-info {
+    display: inline-flex;
     align-items: center;
 }
 
 .search-in-workspace-editor-match {
-    background: var(--theia-word-highlight-match-color0);
+    background: var(--theia-editor-findMatchHighlightBackground);
 }
 
 .current-search-in-workspace-editor-match {
-    background: var(--theia-current-search-match-color)
+    background: var(--theia-editor-findMatchBackground)
 }
 
 .current-match-range-highlight {
-    background: var(--theia-range-highlight);
+    background: var(--theia-editor-findRangeHighlightBackground);
 }
 
 .result-node-buttons {
@@ -295,7 +284,7 @@
     align-self: center;
 }
 
-.theia-TreeNode:hover .notification-count-container {
+.theia-TreeNode:hover .result-head .notification-count-container {
     display: none;
 }
 
@@ -333,7 +322,7 @@
 }
 
 .replace-toggle:hover {
-    background: var(--theia-layout-color2);
+    background: rgba(0, 0, 0, 0.1);
 }
 
 .search-and-replace-fields {
@@ -384,16 +373,16 @@
 }
 
 .highlighted-count-container {
-    background-color: var(--theia-brand-color0);
-    color: #ffffff;
+    background-color: var(--theia-list-activeSelectionBackground);
+    color: var(--theia-list-activeSelectionForeground);
 }
 
 .t-siw-search-container .searchHeader .search-info {
-    color: var(--theia-ui-font-color2);
+    color: var(--theia-descriptionForeground);
     margin-left: 17px;
 }
 
 .theia-siw-lineNumber {
-    color:  var(--theia-ui-font-color2);
+    opacity: .7;
     padding-right: 4px;
 }

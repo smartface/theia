@@ -14,7 +14,6 @@
     "packages/core/coverage/lcov.info",
     "packages/editor/coverage/lcov.info",
     "packages/filesystem/coverage/lcov.info",
-    "packages/extension-manager/coverage/lcov.info",
     "packages/go/coverage/lcov.info",
     "packages/java/coverage/lcov.info",
     "packages/languages/coverage/lcov.info",
@@ -37,15 +36,25 @@
   ],
   "editor.insertSpaces": true,
   "[typescript]": {
-    "editor.tabSize": 4
+    "editor.tabSize": 4,
+    "editor.defaultFormatter": "vscode.typescript-language-features",
+  },
+  "[javascript]": {
+    "editor.tabSize": 4,
+    "editor.defaultFormatter": "vscode.typescript-language-features"
   },
   "[json]": {
-    "editor.tabSize": 2
+    "editor.tabSize": 2,
+    "editor.defaultFormatter": "vscode.json-language-features",
   },
   "[jsonc]": {
-    "editor.tabSize": 2
+    "editor.tabSize": 2,
+    "editor.defaultFormatter": "vscode.json-language-features",
   },
   "typescript.tsdk": "node_modules/typescript/lib",
   "files.insertFinalNewline": true,
-  "clang-format.language.typescript.enable": false
+  "clang-format.language.typescript.enable": false,
+  "editor.rulers": [
+    180
+  ], // ESLint `max-len` rule.
 }

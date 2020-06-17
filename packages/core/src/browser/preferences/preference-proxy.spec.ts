@@ -14,8 +14,8 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  ********************************************************************************/
 
-// tslint:disable:no-any
-// tslint:disable:no-unused-expression
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable no-unused-expressions */
 
 import { enableJSDOM } from '../test/jsdom';
 
@@ -121,7 +121,7 @@ describe('Preference Proxy', () => {
         expect(Object.keys(proxy).join()).to.equal(['my', 'my.pref'].join());
     });
 
-    it('it should forward change events', () => {
+    it('it should forward change events', async () => {
         const proxy = getProxy(undefined, { style: 'both' });
         let theChange: PreferenceChangeEvent<{ [key: string]: any }>;
         proxy.onPreferenceChanged(change => {
@@ -134,7 +134,7 @@ describe('Preference Proxy', () => {
             theSecondChange = change;
         });
 
-        getProvider(PreferenceScope.User).setPreference('my.pref', 'bar');
+        await getProvider(PreferenceScope.User).setPreference('my.pref', 'bar');
 
         expect(theChange!.newValue).to.equal('bar');
         expect(theChange!.oldValue).to.equal(undefined);
@@ -176,4 +176,62 @@ describe('Preference Proxy', () => {
             a: 'a'
         }, undefined, 2), 'there should not be foo.bar.x to avoid sending excessive data to remote clients');
     });
+
+    it('get nested default', () => {
+        const proxy = getProxy({
+            properties: {
+                'foo': {
+                    'anyOf': [
+                        {
+                            'enum': [
+                                false
+                            ]
+                        },
+                        {
+                            'properties': {
+                                'bar': {
+                                    'anyOf': [
+                                        {
+                                            'enum': [
+                                                false
+                                            ]
+                                        },
+                                        {
+                                            'properties': {
+                                                'x': {
+                                                    type: 'boolean'
+                                                },
+                                                'y': {
+                                                    type: 'boolean'
+                                                }
+                                            }
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    ],
+                    default: {
+                        bar: {
+                            x: true,
+                            y: false
+                        }
+                    }
+                }
+            }
+        }, { style: 'both' });
+        assert.deepStrictEqual(proxy['foo'], {
+            bar: {
+                x: true,
+                y: false
+            }
+        });
+        assert.deepStrictEqual(proxy['foo.bar'], {
+            x: true,
+            y: false
+        });
+        assert.strictEqual(proxy['foo.bar.x'], true);
+        assert.strictEqual(proxy['foo.bar.y'], false);
+    });
+
 });

@@ -16,7 +16,7 @@
 
 import { inject, injectable, named, postConstruct } from 'inversify';
 import { ILogger, ContributionProvider } from '@theia/core/lib/common';
-import { QuickOpenTask, TaskTerminateQuickOpen, TaskRunningQuickOpen } from './quick-open-task';
+import { QuickOpenTask, TaskTerminateQuickOpen, TaskRunningQuickOpen, TaskRestartRunningQuickOpen } from './quick-open-task';
 import { CommandContribution, Command, CommandRegistry, MenuContribution, MenuModelRegistry } from '@theia/core/lib/common';
 import {
     FrontendApplication, FrontendApplicationContribution, QuickOpenContribution,
@@ -80,6 +80,12 @@ export namespace TaskCommands {
         label: 'Configure Tasks...'
     };
 
+    export const TASK_OPEN_USER: Command = {
+        id: 'task:open_user',
+        category: TASK_CATEGORY,
+        label: 'Open User Tasks'
+    };
+
     export const TASK_CLEAR_HISTORY: Command = {
         id: 'task:clear-history',
         category: TASK_CATEGORY,
@@ -96,6 +102,12 @@ export namespace TaskCommands {
         id: 'task:terminate',
         category: TASK_CATEGORY,
         label: 'Terminate Task'
+    };
+
+    export const TASK_RESTART_RUNNING: Command = {
+        id: 'task:restart-running',
+        category: TASK_CATEGORY,
+        label: 'Restart Running Task...'
     };
 }
 
@@ -141,6 +153,9 @@ export class TaskFrontendContribution implements CommandContribution, MenuContri
 
     @inject(TaskTerminateQuickOpen)
     protected readonly taskTerminateQuickOpen: TaskTerminateQuickOpen;
+
+    @inject(TaskRestartRunningQuickOpen)
+    protected readonly taskRestartRunningQuickOpen: TaskRestartRunningQuickOpen;
 
     @inject(TaskWatcher)
     protected readonly taskWatcher: TaskWatcher;
@@ -215,7 +230,7 @@ export class TaskFrontendContribution implements CommandContribution, MenuContri
             TaskCommands.TASK_RUN,
             {
                 isEnabled: () => true,
-                // tslint:disable-next-line:no-any
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 execute: (...args: any[]) => {
                     const [source, label, scope] = args;
                     if (source && label) {
@@ -229,7 +244,7 @@ export class TaskFrontendContribution implements CommandContribution, MenuContri
             TaskCommands.TASK_RUN_BUILD,
             {
                 isEnabled: () => this.workspaceService.opened,
-                // tslint:disable-next-line:no-any
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 execute: (...args: any[]) =>
                     this.quickOpenTask.runBuildOrTestTask('build')
             }
@@ -238,7 +253,7 @@ export class TaskFrontendContribution implements CommandContribution, MenuContri
             TaskCommands.TASK_RUN_TEST,
             {
                 isEnabled: () => this.workspaceService.opened,
-                // tslint:disable-next-line:no-any
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 execute: (...args: any[]) =>
                     this.quickOpenTask.runBuildOrTestTask('test')
             }
@@ -253,8 +268,11 @@ export class TaskFrontendContribution implements CommandContribution, MenuContri
         registry.registerCommand(
             TaskCommands.TASK_RUN_LAST,
             {
-                isEnabled: () => !!this.taskService.getLastTask(),
-                execute: () => this.taskService.runLastTask()
+                execute: async () => {
+                    if (!await this.taskService.runLastTask()) {
+                        await this.quickOpenTask.open();
+                    }
+                }
             }
         );
         registry.registerCommand(
@@ -270,6 +288,15 @@ export class TaskFrontendContribution implements CommandContribution, MenuContri
             TaskCommands.TASK_CONFIGURE,
             {
                 execute: () => this.quickOpenTask.configure()
+            }
+        );
+
+        registry.registerCommand(
+            TaskCommands.TASK_OPEN_USER,
+            {
+                execute: () => {
+                    this.taskService.openUserTasks();
+                }
             }
         );
 
@@ -291,6 +318,13 @@ export class TaskFrontendContribution implements CommandContribution, MenuContri
             TaskCommands.TASK_TERMINATE,
             {
                 execute: () => this.taskTerminateQuickOpen.open()
+            }
+        );
+
+        registry.registerCommand(
+            TaskCommands.TASK_RESTART_RUNNING,
+            {
+                execute: () => this.taskRestartRunningQuickOpen.open()
             }
         );
     }
@@ -333,9 +367,15 @@ export class TaskFrontendContribution implements CommandContribution, MenuContri
         });
 
         menus.registerMenuAction(TerminalMenus.TERMINAL_TASKS_INFO, {
+            commandId: TaskCommands.TASK_RESTART_RUNNING.id,
+            label: TaskCommands.TASK_RESTART_RUNNING.label,
+            order: '1'
+        });
+
+        menus.registerMenuAction(TerminalMenus.TERMINAL_TASKS_INFO, {
             commandId: TaskCommands.TASK_TERMINATE.id,
             label: 'Terminate Task...',
-            order: '1'
+            order: '2'
         });
 
         menus.registerMenuAction(TerminalMenus.TERMINAL_TASKS_CONFIG, {
@@ -351,7 +391,8 @@ export class TaskFrontendContribution implements CommandContribution, MenuContri
     registerKeybindings(keybindings: KeybindingRegistry): void {
         keybindings.registerKeybinding({
             command: TaskCommands.TASK_RUN_LAST.id,
-            keybinding: 'ctrlcmd+shift+k'
+            keybinding: 'ctrlcmd+shift+k',
+            when: '!textInputFocus || editorReadonly'
         });
     }
 

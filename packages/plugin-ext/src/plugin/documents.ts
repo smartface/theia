@@ -21,7 +21,7 @@
  * based on https://github.com/Microsoft/vscode/blob/bf9a27ec01f2ef82fc45f69e0c946c7d74a57d3e/src/vs/workbench/api/node/extHostDocumentSaveParticipant.ts
  */
 import { DocumentsExt, ModelChangedEvent, PLUGIN_RPC_CONTEXT, DocumentsMain, SingleEditOperation } from '../common/plugin-api-rpc';
-import URI from 'vscode-uri';
+import { URI } from 'vscode-uri';
 import { UriComponents } from '../common/uri-components';
 import { RPCProtocol } from '../common/rpc-protocol';
 import { Emitter, Event } from '@theia/core/lib/common/event';
@@ -120,15 +120,15 @@ export class DocumentsExtImpl implements DocumentsExt {
         return operations;
     }
 
-    // tslint:disable:no-any
+    /* eslint-disable @typescript-eslint/no-explicit-any */
     protected async fireTextDocumentWillSaveEvent({
         document, reason, fireEvent, accept
     }: {
-            document: theia.TextDocument,
-            reason: theia.TextDocumentSaveReason,
-            fireEvent: (e: theia.TextDocumentWillSaveEvent) => any,
-            accept: (operation: SingleEditOperation) => void
-        }): Promise<void> {
+        document: theia.TextDocument,
+        reason: theia.TextDocumentSaveReason,
+        fireEvent: (e: theia.TextDocumentWillSaveEvent) => any,
+        accept: (operation: SingleEditOperation) => void
+    }): Promise<void> {
 
         const promises: PromiseLike<TextEdit[] | any>[] = [];
         fireEvent(Object.freeze({
@@ -152,38 +152,40 @@ export class DocumentsExtImpl implements DocumentsExt {
             }
         }));
     }
-    // tslint:enable:no-any
+    /* eslint-enable  @typescript-eslint/no-explicit-any */
 
     $acceptDirtyStateChanged(strUrl: UriComponents, isDirty: boolean): void {
         const uri = URI.revive(strUrl);
         const uriString = uri.toString();
         const data = this.editorsAndDocuments.getDocument(uriString);
-        if (data) {
-            data.acceptIsDirty(isDirty);
-            this._onDidChangeDocument.fire({
-                document: data.document,
-                contentChanges: []
-            });
+        if (!data) {
+            throw new Error('unknown document');
         }
+        data.acceptIsDirty(isDirty);
+        this._onDidChangeDocument.fire({
+            document: data.document,
+            contentChanges: []
+        });
     }
     $acceptModelChanged(strUrl: UriComponents, e: ModelChangedEvent, isDirty: boolean): void {
         const uri = URI.revive(strUrl);
         const uriString = uri.toString();
         const data = this.editorsAndDocuments.getDocument(uriString);
-        if (data) {
-            data.acceptIsDirty(isDirty);
-            data.onEvents(e);
-            this._onDidChangeDocument.fire({
-                document: data.document,
-                contentChanges: e.changes.map(change =>
-                    ({
-                        range: Converter.toRange(change.range),
-                        rangeOffset: change.rangeOffset,
-                        rangeLength: change.rangeLength,
-                        text: change.text
-                    }))
-            });
+        if (!data) {
+            throw new Error('unknown document');
         }
+        data.acceptIsDirty(isDirty);
+        data.onEvents(e);
+        this._onDidChangeDocument.fire({
+            document: data.document,
+            contentChanges: e.changes.map(change =>
+                ({
+                    range: Converter.toRange(change.range),
+                    rangeOffset: change.rangeOffset,
+                    rangeLength: change.rangeLength,
+                    text: change.text
+                }))
+        });
     }
     getAllDocumentData(): DocumentDataExt[] {
         return this.editorsAndDocuments.allDocuments();

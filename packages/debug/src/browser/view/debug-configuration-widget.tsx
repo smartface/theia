@@ -80,7 +80,7 @@ export class DebugConfigurationWidget extends ReactWidget {
         const { options } = this;
         return <React.Fragment>
             <DebugAction run={this.start} label='Start Debugging' iconClass='start' ref={this.setStepRef} />
-            <select className='debug-configuration' value={this.currentValue} onChange={this.setCurrentConfiguration}>
+            <select className='theia-select debug-configuration' value={this.currentValue} onChange={this.setCurrentConfiguration}>
                 {options.length ? options : <option value='__NO_CONF__'>No Configurations</option>}
                 <option disabled>{'Add Configuration...'.replace(/./g, '-')}</option>
                 <option value='__ADD_CONF__'>Add Configuration...</option>
@@ -119,16 +119,16 @@ export class DebugConfigurationWidget extends ReactWidget {
             const [name, workspaceFolderUri] = value.split('__CONF__');
             this.manager.current = this.manager.find(name, workspaceFolderUri);
         }
-    }
+    };
 
     protected readonly start = () => {
         const configuration = this.manager.current;
         this.commandRegistry.executeCommand(DebugCommands.START.id, configuration);
-    }
+    };
 
     protected readonly openConfiguration = () => this.manager.openConfiguration();
     protected readonly openConsole = () => this.debugConsole.openView({
         activate: true
-    })
+    });
 
 }

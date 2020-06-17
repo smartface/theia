@@ -14,7 +14,7 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  ********************************************************************************/
 
-// tslint:disable:no-any
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { injectable, decorate, unmanaged } from 'inversify';
 import { Widget } from '@phosphor/widgets';
@@ -33,6 +33,7 @@ export * from '@phosphor/messaging';
 export const DISABLED_CLASS = 'theia-mod-disabled';
 export const EXPANSION_TOGGLE_CLASS = 'theia-ExpansionToggle';
 export const COLLAPSED_CLASS = 'theia-mod-collapsed';
+export const BUSY_CLASS = 'theia-mod-busy';
 export const SELECTED_CLASS = 'theia-mod-selected';
 export const FOCUS_CLASS = 'theia-mod-focus';
 
@@ -45,8 +46,12 @@ export class BaseWidget extends Widget {
     readonly onScrollUp: Event<void> = this.onScrollUpEmitter.event;
     protected readonly onDidChangeVisibilityEmitter = new Emitter<boolean>();
     readonly onDidChangeVisibility = this.onDidChangeVisibilityEmitter.event;
+    protected readonly onDidDisposeEmitter = new Emitter<void>();
+    readonly onDidDispose = this.onDidDisposeEmitter.event;
 
     protected readonly toDispose = new DisposableCollection(
+        this.onDidDisposeEmitter,
+        Disposable.create(() => this.onDidDisposeEmitter.fire()),
         this.onScrollYReachEndEmitter,
         this.onScrollUpEmitter,
         this.onDidChangeVisibilityEmitter
@@ -181,13 +186,13 @@ export function createIconButton(...classNames: string[]): HTMLSpanElement {
     return button;
 }
 
-// tslint:disable-next-line:no-any
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type EventListener<K extends keyof HTMLElementEventMap> = (this: HTMLElement, event: HTMLElementEventMap[K]) => any;
 export interface EventListenerObject<K extends keyof HTMLElementEventMap> {
     handleEvent(evt: HTMLElementEventMap[K]): void;
 }
 export namespace EventListenerObject {
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     export function is<K extends keyof HTMLElementEventMap>(listener: any | undefined): listener is EventListenerObject<K> {
         return !!listener && 'handleEvent' in listener;
     }
@@ -227,7 +232,7 @@ export function addKeyListener<K extends keyof HTMLElementEventMap>(
     }));
     for (const type of additionalEventTypes) {
         toDispose.push(addEventListener(element, type, e => {
-            // tslint:disable-next-line:no-any
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const event = (type as any)['keydown'];
             const result = action(event);
             if (typeof result !== 'boolean' || result) {
@@ -254,4 +259,44 @@ export function addClipboardListener<K extends 'cut' | 'copy' | 'paste'>(element
     return Disposable.create(() =>
         document.removeEventListener(type, documentListener)
     );
+}
+
+/**
+ * Resolves when the given widget is detached and hidden.
+ */
+export function waitForClosed(widget: Widget): Promise<void> {
+    return waitForVisible(widget, false, false);
+}
+
+/**
+ * Resolves when the given widget is attached and visible.
+ */
+export function waitForRevealed(widget: Widget): Promise<void> {
+    return waitForVisible(widget, true, true);
+}
+
+/**
+ * Resolves when the given widget is hidden regardless of attachment.
+ */
+export function waitForHidden(widget: Widget): Promise<void> {
+    return waitForVisible(widget, true);
+}
+
+function waitForVisible(widget: Widget, visible: boolean, attached?: boolean): Promise<void> {
+    if ((typeof attached !== 'boolean' || widget.isAttached === attached) &&
+        (widget.isVisible === visible || (widget.node.style.visibility !== 'hidden') === visible)
+    ) {
+        return new Promise(resolve => window.requestAnimationFrame(() => resolve()));
+    }
+    return new Promise(resolve => {
+        const waitFor = () => window.requestAnimationFrame(() => {
+            if ((typeof attached !== 'boolean' || widget.isAttached === attached) &&
+                (widget.isVisible === visible || (widget.node.style.visibility !== 'hidden') === visible)) {
+                window.requestAnimationFrame(() => resolve());
+            } else {
+                waitFor();
+            }
+        });
+        waitFor();
+    });
 }

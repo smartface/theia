@@ -24,13 +24,13 @@ import { MonacoEditorProvider } from '@theia/monaco/lib/browser/monaco-editor-pr
 import { MonacoEditorZoneWidget } from '@theia/monaco/lib/browser/monaco-editor-zone-widget';
 import { MonacoEditor } from '@theia/monaco/lib/browser/monaco-editor';
 import { DebugEditor } from './debug-editor';
-import { DebugBreakpoint } from '../model/debug-breakpoint';
+import { DebugSourceBreakpoint } from '../model/debug-source-breakpoint';
 
-export type ShowDebugBreakpointOptions = DebugBreakpoint | {
+export type ShowDebugBreakpointOptions = DebugSourceBreakpoint | {
     position: monaco.Position,
     context: DebugBreakpointWidget.Context
 } | {
-    breakpoint: DebugBreakpoint,
+    breakpoint: DebugSourceBreakpoint,
     context: DebugBreakpointWidget.Context
 };
 
@@ -104,7 +104,7 @@ export class DebugBreakpointWidget implements Disposable {
                     if (this.context === 'condition') {
                         overwriteBefore = position.column - 1;
                     } else {
-                        // Inside the currly brackets, need to count how many useful characters are behind the position so they would all be taken into account
+                        // Inside the curly brackets, need to count how many useful characters are behind the position so they would all be taken into account
                         const value = editor.getModel()!.getValue();
                         while ((position.column - 2 - overwriteBefore >= 0)
                             && value[position.column - 2 - overwriteBefore] !== '{' && value[position.column - 2 - overwriteBefore] !== ' ') {
@@ -141,13 +141,13 @@ export class DebugBreakpointWidget implements Disposable {
         if (!this._input) {
             return;
         }
-        const breakpoint = options instanceof DebugBreakpoint ? options : 'breakpoint' in options ? options.breakpoint : undefined;
+        const breakpoint = options instanceof DebugSourceBreakpoint ? options : 'breakpoint' in options ? options.breakpoint : undefined;
         this._values = breakpoint ? {
             condition: breakpoint.condition,
             hitCondition: breakpoint.hitCondition,
             logMessage: breakpoint.logMessage
         } : {};
-        if (options instanceof DebugBreakpoint) {
+        if (options instanceof DebugSourceBreakpoint) {
             if (options.logMessage) {
                 this.context = 'logMessage';
             } else if (options.hitCondition && !options.condition) {
@@ -190,7 +190,9 @@ export class DebugBreakpointWidget implements Disposable {
         if (this._input) {
             this._input.getControl().setValue(this._values[this.context] || '');
         }
-        ReactDOM.render(<select value={this.context} onChange={this.updateInput}>
+        ReactDOM.render(<select
+            className='theia-select'
+            value={this.context} onChange={this.updateInput}>
             {this.renderOption('condition', 'Expression')}
             {this.renderOption('hitCondition', 'Hit Count')}
             {this.renderOption('logMessage', 'Log Message')}
@@ -209,7 +211,7 @@ export class DebugBreakpointWidget implements Disposable {
         if (this._input) {
             this._input.focus();
         }
-    }
+    };
 
     static PLACEHOLDER_DECORATION = 'placeholderDecoration';
     protected updatePlaceholder(): void {
@@ -245,9 +247,6 @@ export class DebugBreakpointWidget implements Disposable {
     }
 
 }
-
-monaco.services.StaticServices.codeEditorService.get().registerDecorationType(DebugBreakpointWidget.PLACEHOLDER_DECORATION, {});
-
 export namespace DebugBreakpointWidget {
     export type Context = keyof Pick<DebugProtocol.SourceBreakpoint, 'condition' | 'hitCondition' | 'logMessage'>;
 }

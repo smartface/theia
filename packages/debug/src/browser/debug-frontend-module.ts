@@ -50,7 +50,11 @@ import { DebugCallStackItemTypeKey } from './debug-call-stack-item-type-key';
 import { bindLaunchPreferences } from './preferences/launch-preferences';
 import { DebugPrefixConfiguration } from './debug-prefix-configuration';
 import { CommandContribution } from '@theia/core/lib/common/command';
-//import { TabBarToolbarContribution } from '@theia/core/lib/browser/shell/tab-bar-toolbar';
+// import { TabBarToolbarContribution } from '@theia/core/lib/browser/shell/tab-bar-toolbar';
+// import { ColorContribution } from '@theia/core/lib/browser/color-application-contribution';
+import { DebugWatchManager } from './debug-watch-manager';
+import { MonacoEditorService } from '@theia/monaco/lib/browser/monaco-editor-service';
+import { DebugBreakpointWidget } from './editor/debug-breakpoint-widget';
 
 export default new ContainerModule((bind: interfaces.Bind) => {
     bind(DebugCallStackItemTypeKey).toDynamicValue(({ container }) =>
@@ -65,7 +69,10 @@ export default new ContainerModule((bind: interfaces.Bind) => {
     bind(DebugEditorModelFactory).toDynamicValue(({ container }) => <DebugEditorModelFactory>(editor =>
         DebugEditorModel.createModel(container, editor)
     )).inSingletonScope();
-    bind(DebugEditorService).toSelf().inSingletonScope();
+    bind(DebugEditorService).toSelf().inSingletonScope().onActivation((context, service) => {
+        context.container.get(MonacoEditorService).registerDecorationType(DebugBreakpointWidget.PLACEHOLDER_DECORATION, {});
+        return service;
+    });
 
     bind(DebugSessionWidgetFactory).toDynamicValue(({ container }) =>
         (options: DebugViewOptions) => DebugSessionWidget.createWidget(container, options)
@@ -86,9 +93,10 @@ export default new ContainerModule((bind: interfaces.Bind) => {
     bind(KeybindingContext).to(InDebugModeContext).inSingletonScope();
     bind(KeybindingContext).to(BreakpointWidgetInputFocusContext).inSingletonScope();
     bind(KeybindingContext).to(BreakpointWidgetInputStrictFocusContext).inSingletonScope();
-    //bindViewContribution(bind, DebugFrontendApplicationContribution);
-    //bind(FrontendApplicationContribution).toService(DebugFrontendApplicationContribution);
-    //bind(TabBarToolbarContribution).toService(DebugFrontendApplicationContribution);
+    // bindViewContribution(bind, DebugFrontendApplicationContribution);
+    // bind(FrontendApplicationContribution).toService(DebugFrontendApplicationContribution);
+    // bind(TabBarToolbarContribution).toService(DebugFrontendApplicationContribution);
+    // bind(ColorContribution).toService(DebugFrontendApplicationContribution);
 
     bind(DebugSessionContributionRegistryImpl).toSelf().inSingletonScope();
     bind(DebugSessionContributionRegistry).toService(DebugSessionContributionRegistryImpl);
@@ -100,4 +108,6 @@ export default new ContainerModule((bind: interfaces.Bind) => {
 
     bindDebugPreferences(bind);
     bindLaunchPreferences(bind);
+
+    bind(DebugWatchManager).toSelf().inSingletonScope();
 });

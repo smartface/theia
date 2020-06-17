@@ -16,6 +16,7 @@
 
 import { injectable, inject } from 'inversify';
 import { QuickOpenService, QuickOpenModel, QuickOpenItem, QuickOpenGroupItem, QuickOpenMode, LabelProvider } from '@theia/core/lib/browser';
+import { EnvVariablesServer } from '@theia/core/lib/common/env-variables';
 import { WorkspaceService } from './workspace-service';
 import { getTemporaryWorkspaceFileUri } from '../common';
 import { WorkspacePreferences } from './workspace-preferences';
@@ -34,15 +35,15 @@ export class QuickOpenWorkspace implements QuickOpenModel {
     @inject(FileSystem) protected readonly fileSystem: FileSystem;
     @inject(LabelProvider) protected readonly labelProvider: LabelProvider;
     @inject(WorkspacePreferences) protected preferences: WorkspacePreferences;
+    @inject(EnvVariablesServer) protected readonly envServer: EnvVariablesServer;
 
     async open(workspaces: string[]): Promise<void> {
         this.items = [];
-        const homeStat = await this.fileSystem.getCurrentUserHome();
-        const home = (homeStat) ? new URI(homeStat.uri).path.toString() : undefined;
-        let tempWorkspaceFile: URI | undefined;
-        if (home) {
-            tempWorkspaceFile = getTemporaryWorkspaceFileUri(new URI(home));
-        }
+        const [homeDirUri, tempWorkspaceFile] = await Promise.all([
+            this.fileSystem.getCurrentUserHome(),
+            getTemporaryWorkspaceFileUri(this.envServer)
+        ]);
+        const home = homeDirUri ? await this.fileSystem.getFsPath(homeDirUri.uri) : undefined;
         await this.preferences.ready;
         if (!workspaces.length) {
             this.items.push(new QuickOpenGroupItem({
@@ -57,14 +58,16 @@ export class QuickOpenWorkspace implements QuickOpenModel {
                 !this.preferences['workspace.supportMultiRootWorkspace'] && !stat.isDirectory) {
                 continue; // skip the workspace files if multi root is not supported
             }
-            if (tempWorkspaceFile && uri.toString() === tempWorkspaceFile.toString()) {
+            if (uri.toString() === tempWorkspaceFile.toString()) {
                 continue; // skip the temporary workspace files
             }
+            const icon = this.labelProvider.getIcon(stat);
+            const iconClass = icon === '' ? undefined : icon + ' file-icon';
             this.items.push(new QuickOpenGroupItem({
                 label: uri.path.base,
                 description: (home) ? FileSystemUtils.tildifyPath(uri.path.toString(), home) : uri.path.toString(),
                 groupLabel: `last modified ${moment(stat.lastModification).fromNow()}`,
-                iconClass: await this.labelProvider.getIcon(stat) + ' file-icon',
+                iconClass,
                 run: (mode: QuickOpenMode): boolean => {
                     if (mode !== QuickOpenMode.OPEN) {
                         return false;

@@ -17,8 +17,9 @@
 import { injectable, inject, postConstruct } from 'inversify';
 import * as fs from 'fs-extra';
 import * as path from 'path';
+import { FileUri } from '@theia/core/lib/node/file-uri';
 import { Deferred } from '@theia/core/lib/common/promise-util';
-import { FileSystem } from '@theia/filesystem/lib/common';
+import { EnvVariablesServer } from '@theia/core/lib/common/env-variables';
 import { PluginPaths } from './paths/const';
 import { PluginPathsService } from '../common/plugin-paths-protocol';
 import { KeysToAnyValues, KeysToKeysToAnyValue } from '../../common/types';
@@ -32,19 +33,22 @@ export class PluginsKeyValueStorage {
     @inject(PluginPathsService)
     private readonly pluginPathsService: PluginPathsService;
 
-    @inject(FileSystem)
-    protected readonly fileSystem: FileSystem;
+    @inject(EnvVariablesServer)
+    protected readonly envServer: EnvVariablesServer;
 
     @postConstruct()
     protected async init(): Promise<void> {
         try {
-            const theiaDirPath = await this.pluginPathsService.getTheiaDirPath();
-            await this.fileSystem.createFolder(theiaDirPath);
-            const globalDataPath = path.join(theiaDirPath, PluginPaths.PLUGINS_GLOBAL_STORAGE_DIR, 'global-state.json');
-            await this.fileSystem.createFolder(path.dirname(globalDataPath));
-            this.deferredGlobalDataPath.resolve(globalDataPath);
+            const configDirUri = await this.envServer.getConfigDirUri();
+            const globalStorageFsPath = path.join(FileUri.fsPath(configDirUri), PluginPaths.PLUGINS_GLOBAL_STORAGE_DIR);
+            const exists = await fs.pathExists(globalStorageFsPath);
+            if (!exists) {
+                await fs.mkdirs(globalStorageFsPath);
+            }
+            const globalDataFsPath = path.join(globalStorageFsPath, 'global-state.json');
+            this.deferredGlobalDataPath.resolve(globalDataFsPath);
         } catch (e) {
-            console.error('Faild to initialize global state path: ', e);
+            console.error('Failed to initialize global state path: ', e);
             this.deferredGlobalDataPath.resolve(undefined);
         }
     }

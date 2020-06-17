@@ -15,24 +15,47 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  ********************************************************************************/
 
-// tslint:disable:no-any
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { IRawTheme, Registry } from 'vscode-textmate';
+import { injectable } from 'inversify';
+import { IRawTheme, Registry, IRawThemeSetting } from 'vscode-textmate';
 
 export interface ThemeMix extends IRawTheme, monaco.editor.IStandaloneThemeData { }
+export interface MixStandaloneTheme extends monaco.services.IStandaloneTheme {
+    themeData: ThemeMix
+}
 
+@injectable()
 export class MonacoThemeRegistry {
 
-    protected themes = new Map<string, ThemeMix>();
+    getThemeData(): ThemeMix;
+    getThemeData(name: string): ThemeMix | undefined;
+    getThemeData(name?: string): ThemeMix | undefined {
+        const theme = this.doGetTheme(name);
+        return theme && theme.themeData;
+    }
 
-    public getTheme(name: string): IRawTheme | undefined {
-        return this.themes.get(name);
+    getTheme(): MixStandaloneTheme;
+    getTheme(name: string): MixStandaloneTheme | undefined;
+    getTheme(name?: string): MixStandaloneTheme | undefined {
+        return this.doGetTheme(name);
+    }
+
+    protected doGetTheme(name: string | undefined): MixStandaloneTheme | undefined {
+        const standaloneThemeService = monaco.services.StaticServices.standaloneThemeService.get();
+        const theme = !name ? standaloneThemeService.getTheme() : standaloneThemeService._knownThemes.get(name);
+        return theme as MixStandaloneTheme | undefined;
+    }
+
+    setTheme(name: string, data: ThemeMix): void {
+        // monaco auto refreshes a theme with new data
+        monaco.editor.defineTheme(name, data);
     }
 
     /**
      * Register VS Code compatible themes
      */
-    public register(json: any, includes?: { [includePath: string]: any }, givenName?: string, monacoBase?: monaco.editor.BuiltinTheme): ThemeMix {
+    register(json: any, includes?: { [includePath: string]: any }, givenName?: string, monacoBase?: monaco.editor.BuiltinTheme): ThemeMix {
         const name = givenName || json.name!;
         const result: ThemeMix = {
             name,
@@ -42,10 +65,6 @@ export class MonacoThemeRegistry {
             rules: [],
             settings: []
         };
-        if (this.themes.has(name)) {
-            return this.themes.get(name)!;
-        }
-        this.themes.set(name, result);
         if (typeof json.include !== 'undefined') {
             if (!includes || !includes[json.include]) {
                 console.error(`Couldn't resolve includes theme ${json.include}.`);
@@ -56,8 +75,20 @@ export class MonacoThemeRegistry {
                 result.settings.push(...parentTheme.settings);
             }
         }
-        if (json.tokenColors) {
-            result.settings.push(...json.tokenColors);
+        const tokenColors: Array<IRawThemeSetting> = json.tokenColors;
+        if (Array.isArray(tokenColors)) {
+            for (const tokenColor of tokenColors) {
+                if (tokenColor.scope && tokenColor.settings) {
+                    result.settings.push({
+                        scope: tokenColor.scope,
+                        settings: {
+                            foreground: this.normalizeColor(tokenColor.settings.foreground),
+                            background: this.normalizeColor(tokenColor.settings.background),
+                            fontStyle: tokenColor.settings.fontStyle
+                        }
+                    });
+                }
+            }
         }
         if (json.colors) {
             Object.assign(result.colors, json.colors);
@@ -67,20 +98,25 @@ export class MonacoThemeRegistry {
             for (const setting of result.settings) {
                 this.transform(setting, rule => result.rules.push(rule));
             }
+
+            // the default rule (scope empty) is always the first rule. Ignore all other default rules.
+            const defaultTheme = monaco.services.StaticServices.standaloneThemeService.get()._knownThemes.get(result.base)!;
+            const foreground = result.colors['editor.foreground'] || defaultTheme.getColor('editor.foreground');
+            const background = result.colors['editor.background'] || defaultTheme.getColor('editor.background');
+            result.settings.unshift({
+                settings: {
+                    foreground: this.normalizeColor(foreground),
+                    background: this.normalizeColor(background)
+                }
+            });
+
             const reg = new Registry();
             reg.setTheme(result);
             result.encodedTokensColors = reg.getColorMap();
             // index 0 has to be set to null as it is 'undefined' by default, but monaco code expects it to be null
-            // tslint:disable-next-line:no-null-keyword
+            // eslint-disable-next-line no-null/no-null
             result.encodedTokensColors[0] = null!;
-            // index 1 and 2 are the default colors
-            if (result.colors && result.colors['editor.foreground']) {
-                result.encodedTokensColors[1] = result.colors['editor.foreground'];
-            }
-            if (result.colors && result.colors['editor.background']) {
-                result.encodedTokensColors[2] = result.colors['editor.background'];
-            }
-            monaco.editor.defineTheme(givenName, result);
+            this.setTheme(givenName, result);
         }
         return result;
     }
@@ -89,38 +125,46 @@ export class MonacoThemeRegistry {
         if (typeof tokenColor.scope === 'undefined') {
             tokenColor.scope = [''];
         } else if (typeof tokenColor.scope === 'string') {
-            // tokenColor.scope = tokenColor.scope.split(',').map((scope: string) => scope.trim()); // ?
-            tokenColor.scope = [tokenColor.scope];
+            tokenColor.scope = tokenColor.scope.split(',').map((scope: string) => scope.trim());
         }
 
         for (const scope of tokenColor.scope) {
-
-            // Converting numbers into a format that monaco understands
-            const settings = Object.keys(tokenColor.settings).reduce((previous: { [key: string]: string }, current) => {
-                let value: string = tokenColor.settings[current];
-                if (typeof value === typeof '') {
-                    value = value.replace(/^\#/, '').slice(0, 6);
-                }
-                previous[current] = value;
-                return previous;
-            }, {});
-
             acceptor({
-                ...settings, token: scope
+                ...tokenColor.settings, token: scope
             });
         }
     }
+
+    protected normalizeColor(color: string | monaco.color.Color | undefined): string | undefined {
+        if (!color) {
+            return undefined;
+        }
+        const normalized = String(color).replace(/^\#/, '').slice(0, 6);
+        if (normalized.length < 6) {
+            // ignoring not normalized colors to avoid breaking token color indexes between monaco and vscode-textmate
+            console.error(`Color '${normalized}' is NOT normalized, it must have 6 positions.`);
+            return undefined;
+        }
+        return '#' + normalized;
+    }
+
 }
 
 export namespace MonacoThemeRegistry {
     export const SINGLETON = new MonacoThemeRegistry();
 
-    export const DARK_DEFAULT_THEME: string = SINGLETON.register(require('../../../data/monaco-themes/vscode/dark_plus.json'), {
+    export const DARK_DEFAULT_THEME: string = SINGLETON.register(require('../../../data/monaco-themes/vscode/dark_theia.json'), {
         './dark_defaults.json': require('../../../data/monaco-themes/vscode/dark_defaults.json'),
-        './dark_vs.json': require('../../../data/monaco-themes/vscode/dark_vs.json')
-    }, 'dark-plus', 'vs-dark').name!;
-    export const LIGHT_DEFAULT_THEME: string = SINGLETON.register(require('../../../data/monaco-themes/vscode/light_plus.json'), {
+        './dark_vs.json': require('../../../data/monaco-themes/vscode/dark_vs.json'),
+        './dark_plus.json': require('../../../data/monaco-themes/vscode/dark_plus.json')
+    }, 'dark-theia', 'vs-dark').name!;
+    export const LIGHT_DEFAULT_THEME: string = SINGLETON.register(require('../../../data/monaco-themes/vscode/light_theia.json'), {
         './light_defaults.json': require('../../../data/monaco-themes/vscode/light_defaults.json'),
-        './light_vs.json': require('../../../data/monaco-themes/vscode/light_vs.json')
-    }, 'light-plus', 'vs').name!;
+        './light_vs.json': require('../../../data/monaco-themes/vscode/light_vs.json'),
+        './light_plus.json': require('../../../data/monaco-themes/vscode/light_plus.json'),
+    }, 'light-theia', 'vs').name!;
+    export const HC_DEFAULT_THEME: string = SINGLETON.register(require('../../../data/monaco-themes/vscode/hc_theia.json'), {
+        './hc_black_defaults.json': require('../../../data/monaco-themes/vscode/hc_black_defaults.json'),
+        './hc_black.json': require('../../../data/monaco-themes/vscode/hc_black.json')
+    }, 'hc-theia', 'hc-black').name!;
 }

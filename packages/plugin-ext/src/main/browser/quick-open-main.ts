@@ -19,8 +19,7 @@ import { interfaces } from 'inversify';
 import {
     QuickOpenModel,
     QuickOpenItem,
-    QuickOpenMode,
-    QuickOpenItemOptions
+    QuickOpenMode
 } from '@theia/core/lib/browser/quick-open/quick-open-model';
 import { RPCProtocol } from '../../common/rpc-protocol';
 import {
@@ -34,14 +33,15 @@ import {
     TransferQuickPick
 } from '../../common/plugin-api-rpc';
 import { MonacoQuickOpenService } from '@theia/monaco/lib/browser/monaco-quick-open-service';
-import { QuickInputService, FOLDER_ICON, FILE_ICON } from '@theia/core/lib/browser';
+import { QuickInputService, LabelProvider } from '@theia/core/lib/browser';
 import { PluginSharedStyle } from './plugin-shared-style';
-import URI from 'vscode-uri';
+import { URI } from 'vscode-uri';
 import { ThemeIcon, QuickInputButton } from '../../plugin/types-impl';
 import { QuickPickService, QuickPickItem, QuickPickValue } from '@theia/core/lib/common/quick-pick-service';
 import { QuickTitleBar } from '@theia/core/lib/browser/quick-open/quick-title-bar';
 import { DisposableCollection, Disposable } from '@theia/core/lib/common/disposable';
 import { QuickTitleButtonSide, QuickOpenGroupItem } from '@theia/core/lib/common/quick-open-model';
+import { CancellationToken } from '@theia/core/lib/common/cancellation';
 
 export class QuickOpenMainImpl implements QuickOpenMain, QuickOpenModel, Disposable {
 
@@ -54,7 +54,8 @@ export class QuickOpenMainImpl implements QuickOpenMain, QuickOpenModel, Disposa
     private acceptor: ((items: QuickOpenItem[]) => void) | undefined;
     private items: QuickOpenItem[] | undefined;
 
-    private sharedStyle: PluginSharedStyle;
+    private readonly sharedStyle: PluginSharedStyle;
+    private readonly labelProvider: LabelProvider;
 
     private activeElement: HTMLElement | undefined;
 
@@ -67,6 +68,7 @@ export class QuickOpenMainImpl implements QuickOpenMain, QuickOpenModel, Disposa
         this.quickTitleBar = container.get(QuickTitleBar);
         this.quickPick = container.get(QuickPickService);
         this.sharedStyle = container.get(PluginSharedStyle);
+        this.labelProvider = container.get(LabelProvider);
     }
 
     dispose(): void {
@@ -82,30 +84,38 @@ export class QuickOpenMainImpl implements QuickOpenMain, QuickOpenModel, Disposa
         this.activeElement = undefined;
     }
 
-    $show(options: PickOptions): Promise<number | number[]> {
-        this.activeElement = window.document.activeElement as HTMLElement;
-        this.delegate.open(this, {
-            fuzzyMatchDescription: options.matchOnDescription,
-            fuzzyMatchLabel: true,
-            fuzzyMatchDetail: options.matchOnDetail,
-            placeholder: options.placeHolder,
-            ignoreFocusOut: options.ignoreFocusLost,
-            onClose: () => {
-                this.cleanUp();
-            }
-        });
-
+    $show(options: PickOptions, token: CancellationToken): Promise<number | number[]> {
         return new Promise((resolve, reject) => {
+            if (token.isCancellationRequested) {
+                resolve(undefined);
+                return;
+            }
             this.doResolve = resolve;
+            this.activeElement = window.document.activeElement as HTMLElement;
+            const toDispose = token.onCancellationRequested(() =>
+                this.delegate.hide()
+            );
+            this.delegate.open(this, {
+                fuzzyMatchDescription: options.matchOnDescription,
+                fuzzyMatchLabel: true,
+                fuzzyMatchDetail: options.matchOnDetail,
+                placeholder: options.placeHolder,
+                ignoreFocusOut: options.ignoreFocusLost,
+                onClose: () => {
+                    this.doResolve(undefined);
+                    toDispose.dispose();
+                    this.cleanUp();
+                }
+            });
         });
     }
 
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     $setItems(items: PickOpenItem[]): Promise<any> {
         this.items = [];
         for (const i of items) {
             let item: QuickOpenItem | QuickOpenGroupItem;
-            // tslint:disable-next-line: no-any
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const options: any = {
                 label: i.label,
                 description: i.description,
@@ -137,31 +147,25 @@ export class QuickOpenMainImpl implements QuickOpenMain, QuickOpenModel, Disposa
         return Promise.resolve();
     }
 
-    private convertPickOpenItemToQuickOpenItem<T>(items: PickOpenItem[]): QuickPickItem<Object>[] {
-        const convertedItems: QuickPickItem<Object>[] = [];
+    private convertPickOpenItemToQuickOpenItem(items: PickOpenItem[]): QuickPickItem<number>[] {
+        const convertedItems: QuickPickValue<number>[] = [];
         for (const i of items) {
             convertedItems.push({
                 label: i.label,
                 description: i.description,
                 detail: i.detail,
-                type: i,
-                value: i.label
-            } as QuickPickValue<Object>);
+                value: i.handle
+            });
         }
         return convertedItems;
     }
 
-    // tslint:disable-next-line:no-any
-    $setError(error: Error): Promise<any> {
-        throw new Error('Method not implemented.');
-    }
-
-    $input(options: InputBoxOptions, validateInput: boolean): Promise<string | undefined> {
+    $input(options: InputBoxOptions, validateInput: boolean, token: CancellationToken): Promise<string | undefined> {
         if (validateInput) {
             options.validateInput = val => this.proxy.$validateInput(val);
         }
 
-        return this.quickInput.open(options);
+        return this.quickInput.open(options, token);
     }
 
     protected convertQuickInputButton(quickInputButton: QuickInputButton, index: number, toDispose: DisposableCollection): QuickInputTitleButtonHandle {
@@ -196,10 +200,10 @@ export class QuickOpenMainImpl implements QuickOpenMain, QuickOpenModel, Disposa
     private resolveIconClassFromThemeIcon(themeIconID: ThemeIcon): string {
         switch (themeIconID.id) {
             case 'folder': {
-                return FOLDER_ICON;
+                return this.labelProvider.folderIcon;
             }
             case 'file': {
-                return FILE_ICON;
+                return this.labelProvider.fileIcon;
             }
             case 'Back': {
                 return 'fa fa-arrow-left';
@@ -232,25 +236,22 @@ export class QuickOpenMainImpl implements QuickOpenMain, QuickOpenModel, Disposa
             validateInput: inputBox.validateInput
         });
 
-        toDispose.push(this.quickInput.onDidAccept(() => this.proxy.$acceptOnDidAccept(inputBox.quickInputIndex)));
-        toDispose.push(this.quickInput.onDidChangeValue(changedText => this.proxy.$acceptDidChangeValue(inputBox.quickInputIndex, changedText)));
+        toDispose.push(this.quickInput.onDidAccept(() => this.proxy.$acceptOnDidAccept(inputBox.id)));
+        toDispose.push(this.quickInput.onDidChangeValue(changedText => this.proxy.$acceptDidChangeValue(inputBox.id, changedText)));
         toDispose.push(this.quickTitleBar.onDidTriggerButton(button => {
-            this.proxy.$acceptOnDidTriggerButton(inputBox.quickInputIndex, button);
+            this.proxy.$acceptOnDidTriggerButton(inputBox.id, button);
         }));
         this.toDispose.push(toDispose);
-        quickInput.then(selection => {
+        quickInput.then(() => {
             if (toDispose.disposed) {
                 return;
             }
-            if (selection) {
-                this.proxy.$acceptDidChangeSelection(inputBox.quickInputIndex, selection as string);
-            }
-            this.proxy.$acceptOnDidHide(inputBox.quickInputIndex);
+            this.proxy.$acceptOnDidHide(inputBox.id);
             toDispose.dispose();
         });
     }
 
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     private findChangedKey(key: string, value: any): void {
         switch (key) {
             case 'title': {
@@ -286,13 +287,15 @@ export class QuickOpenMainImpl implements QuickOpenMain, QuickOpenModel, Disposa
                 break;
             }
             case 'items': {
-                this.quickPick.setItems(value.map((options: QuickOpenItemOptions) => new QuickOpenItem(options)));
+                this.quickPick.setItems(this.convertPickOpenItemToQuickOpenItem(value));
                 break;
             }
+            // TODO selectedItems, activeItems and other properties
+            // TODO we need better type checking here
         }
     }
 
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     $setQuickInputChanged(changed: any): void {
         for (const key in changed) {
             if (changed.hasOwnProperty(key)) {
@@ -307,8 +310,7 @@ export class QuickOpenMainImpl implements QuickOpenMain, QuickOpenModel, Disposa
 
     async $showCustomQuickPick<T extends QuickPickItemExt>(options: TransferQuickPick<T>): Promise<void> {
         const toDispose = new DisposableCollection();
-        const items = this.convertPickOpenItemToQuickOpenItem(options.items);
-        const quickPick = this.quickPick.show(items, {
+        const quickPick = this.quickPick.show(this.convertPickOpenItemToQuickOpenItem(options.items), {
             buttons: options.buttons.map((btn, i) => this.convertQuickInputButton(btn, i, toDispose)),
             placeholder: options.placeholder,
             fuzzyMatchDescription: options.matchOnDescription,
@@ -321,21 +323,23 @@ export class QuickOpenMainImpl implements QuickOpenMain, QuickOpenModel, Disposa
             runIfSingle: false,
         });
 
-        toDispose.push(this.quickPick.onDidAccept(() => this.proxy.$acceptOnDidAccept(options.quickInputIndex)));
-        toDispose.push(this.quickPick.onDidChangeActiveItems(changedItems => this.proxy.$acceptDidChangeActive(options.quickInputIndex, changedItems)));
-        toDispose.push(this.quickPick.onDidChangeValue(value => this.proxy.$acceptDidChangeValue(options.quickInputIndex, value)));
+        toDispose.push(this.quickPick.onDidAccept(() => this.proxy.$acceptOnDidAccept(options.id)));
+        toDispose.push(this.quickPick.onDidChangeActive((elements: QuickPickValue<number>[]) => {
+            this.proxy.$onDidChangeActive(options.id, elements.map(e => e.value));
+        }));
+        toDispose.push(this.quickPick.onDidChangeSelection((elements: QuickPickValue<number>[]) => {
+            this.proxy.$onDidChangeSelection(options.id, elements.map(e => e.value));
+        }));
+        toDispose.push(this.quickPick.onDidChangeValue(value => this.proxy.$acceptDidChangeValue(options.id, value)));
         toDispose.push(this.quickTitleBar.onDidTriggerButton(button => {
-            this.proxy.$acceptOnDidTriggerButton(options.quickInputIndex, button);
+            this.proxy.$acceptOnDidTriggerButton(options.id, button);
         }));
         this.toDispose.push(toDispose);
-        quickPick.then(selection => {
+        quickPick.then(() => {
             if (toDispose.disposed) {
                 return;
             }
-            if (selection) {
-                this.proxy.$acceptDidChangeSelection(options.quickInputIndex, selection as string);
-            }
-            this.proxy.$acceptOnDidHide(options.quickInputIndex);
+            this.proxy.$acceptOnDidHide(options.id);
             toDispose.dispose();
         });
     }

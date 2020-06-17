@@ -24,6 +24,7 @@ import { RecursivePartial } from '@theia/core/lib/common/types';
 import { PreferenceSchema, PreferenceSchemaProperties } from '@theia/core/lib/common/preferences/preference-schema';
 import { ProblemMatcherContribution, ProblemPatternContribution, TaskDefinition } from '@theia/task/lib/common';
 import { FileStat } from '@theia/filesystem/lib/common';
+import { ColorDefinition } from '@theia/core/lib/browser/color-registry';
 
 export const hostedServicePath = '/services/hostedPlugin';
 
@@ -54,6 +55,7 @@ export interface PluginPackage {
     activationEvents?: string[];
     extensionDependencies?: string[];
     extensionPack?: string[];
+    icon?: string;
 }
 export namespace PluginPackage {
     export function toPluginUrl(pck: PluginPackage, relativePath: string): string {
@@ -76,6 +78,9 @@ export interface PluginPackageContribution {
     keybindings?: PluginPackageKeybinding | PluginPackageKeybinding[];
     debuggers?: PluginPackageDebuggersContribution[];
     snippets: PluginPackageSnippetsContribution[];
+    themes?: PluginThemeContribution[];
+    iconThemes?: PluginIconThemeContribution[];
+    colors?: PluginColorContribution[];
     taskDefinitions?: PluginTaskDefinitionContribution[];
     problemMatchers?: PluginProblemMatcherContribution[];
     problemPatterns?: PluginProblemPatternContribution[];
@@ -132,6 +137,30 @@ export interface ScopeMap {
 export interface PluginPackageSnippetsContribution {
     language?: string;
     path?: string;
+}
+
+export interface PluginColorContribution {
+    id?: string;
+    description?: string;
+    defaults?: { light?: string, dark?: string, highContrast?: string };
+}
+
+export type PluginUiTheme = 'vs' | 'vs-dark' | 'hc-black';
+
+export interface PluginThemeContribution {
+    id?: string;
+    label?: string;
+    description?: string;
+    path?: string;
+    uiTheme?: PluginUiTheme;
+}
+
+export interface PluginIconThemeContribution {
+    id?: string;
+    label?: string;
+    description?: string;
+    path?: string;
+    uiTheme?: PluginUiTheme;
 }
 
 export interface PlatformSpecificAdapterContribution {
@@ -191,7 +220,7 @@ export interface PluginTaskDefinitionContribution {
         [name: string]: {
             type: string;
             description?: string;
-            // tslint:disable-next-line:no-any
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             [additionalProperty: string]: any;
         }
     }
@@ -239,8 +268,6 @@ export interface PluginScanner {
     getDependencies(plugin: PluginPackage): Map<string, string> | undefined;
 }
 
-export const PluginDeployer = Symbol('PluginDeployer');
-
 /**
  * A plugin resolver is handling how to resolve a plugin link into a local resource.
  */
@@ -287,10 +314,24 @@ export interface PluginDeployerResolverContext {
 
 }
 
+export interface PluginDeployerStartContext {
+    readonly userEntries: string[]
+    readonly systemEntries: string[]
+}
+
+export const PluginDeployer = Symbol('PluginDeployer');
 export interface PluginDeployer {
 
     start(): void;
 
+}
+
+export const PluginDeployerParticipant = Symbol('PluginDeployerParticipant');
+/**
+ * A participant can hook into the plugin deployer lifecycle.
+ */
+export interface PluginDeployerParticipant {
+    onWillStart?(context: PluginDeployerStartContext): Promise<void>;
 }
 
 export enum PluginDeployerEntryType {
@@ -299,6 +340,14 @@ export enum PluginDeployerEntryType {
 
     BACKEND
 }
+
+/**
+ * Whether a plugin installed by a user or system.
+ */
+export enum PluginType {
+    System,
+    User
+};
 
 export interface PluginDeployerEntry {
 
@@ -313,7 +362,7 @@ export interface PluginDeployerEntry {
     originalPath(): string;
 
     /**
-     * Local path on the filesystem
+     * Local path on the filesystem.
      */
     path(): string;
 
@@ -353,6 +402,15 @@ export interface PluginDeployerEntry {
     accept(...types: PluginDeployerEntryType[]): void;
 
     hasError(): boolean;
+
+    type: PluginType
+    /**
+     * A fs path to a directory where a plugin is located.
+     * Depending on a plugin format it can be different from `path`.
+     * Use `path` if you want to resolve something within a plugin, like `README.md` file.
+     * Use `rootPath` if you want to manipulate the entire plugin location, like delete or move it.
+     */
+    rootPath: string
 }
 
 export interface PluginDeployerFileHandlerContext {
@@ -384,7 +442,15 @@ export interface PluginModel {
         version: string;
     };
     entryPoint: PluginEntryPoint;
+    packageUri: string;
+    /**
+     * @deprecated since 1.1.0 - because it lead to problems with getting a relative path
+     * needed by Icon Themes to correcty load Fonts, use packageUri instead.
+     */
     packagePath: string;
+    iconUrl?: string;
+    readmeUrl?: string;
+    licenseUrl?: string;
 }
 
 export interface PluginEntryPoint {
@@ -408,6 +474,9 @@ export interface PluginContribution {
     keybindings?: Keybinding[];
     debuggers?: DebuggerContribution[];
     snippets?: SnippetContribution[];
+    themes?: ThemeContribution[];
+    iconThemes?: IconThemeContribution[];
+    colors?: ColorDefinition[];
     taskDefinitions?: TaskDefinition[];
     problemMatchers?: ProblemMatcherContribution[];
     problemPatterns?: ProblemPatternContribution[];
@@ -417,6 +486,24 @@ export interface SnippetContribution {
     uri: string
     source: string
     language?: string
+}
+
+export type UiTheme = 'vs' | 'vs-dark' | 'hc-black';
+
+export interface ThemeContribution {
+    id?: string;
+    label?: string;
+    description?: string;
+    uri: string;
+    uiTheme?: UiTheme;
+}
+
+export interface IconThemeContribution {
+    id: string;
+    label?: string;
+    description?: string;
+    uri: string;
+    uiTheme?: UiTheme;
 }
 
 export interface GrammarsContribution {
@@ -626,6 +713,8 @@ export interface PluginDeployerHandler {
     deployFrontendPlugins(frontendPlugins: PluginDeployerEntry[]): Promise<void>;
     deployBackendPlugins(backendPlugins: PluginDeployerEntry[]): Promise<void>;
 
+    undeployPlugin(pluginId: string): Promise<boolean>;
+
     getPluginDependencies(pluginToBeInstalled: PluginDeployerEntry): Promise<PluginDependencies | undefined>
 }
 
@@ -634,6 +723,10 @@ export interface GetDeployedPluginsParams {
 }
 
 export interface DeployedPlugin {
+    /**
+     * defaults to system
+     */
+    type?: PluginType;
     metadata: PluginMetadata;
     contributes?: PluginContribution;
 }
@@ -666,9 +759,13 @@ export const PluginServer = Symbol('PluginServer');
 export interface PluginServer {
 
     /**
-     * Deploy a plugin
+     * Deploy a plugin.
+     *
+     * @param type whether a plugin is installed by a system or a user, defaults to a user
      */
-    deploy(pluginEntry: string): Promise<void>;
+    deploy(pluginEntry: string, type?: PluginType): Promise<void>;
+
+    undeploy(pluginId: string): Promise<void>;
 
     setStorageValue(key: string, value: KeysToAnyValues, kind: PluginStorageKind): Promise<boolean>;
     getStorageValue(key: string, kind: PluginStorageKind): Promise<KeysToAnyValues>;
@@ -677,9 +774,9 @@ export interface PluginServer {
 
 export const ServerPluginRunner = Symbol('ServerPluginRunner');
 export interface ServerPluginRunner {
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     acceptMessage(jsonMessage: any): boolean;
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     onMessage(jsonMessage: any): void;
     setClient(client: HostedPluginClient): void;
     setDefault(defaultRunner: ServerPluginRunner): void;

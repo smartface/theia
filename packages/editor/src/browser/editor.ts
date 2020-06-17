@@ -128,7 +128,7 @@ export interface MouseTarget {
     /**
      * Some extra detail.
      */
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     readonly detail: any;
 }
 
@@ -163,6 +163,10 @@ export interface TextEditor extends Disposable, TextEditorSelection, Navigatable
     selection: Range;
     readonly onSelectionChanged: Event<Range>;
 
+    /**
+     * The text editor should be revealed,
+     * otherwise it won't receive the focus.
+     */
     focus(): void;
     blur(): void;
     isFocused(): boolean;
@@ -283,7 +287,7 @@ export interface ReplaceOperation {
 }
 
 export namespace TextEditorSelection {
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     export function is(e: any): e is TextEditorSelection {
         return e && e['uri'] instanceof URI;
     }

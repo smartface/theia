@@ -18,7 +18,7 @@ import URI from '@theia/core/lib/common/uri';
 import { Command, CommandContribution, CommandRegistry, DisposableCollection, MenuContribution, MenuModelRegistry, Mutable, MenuAction } from '@theia/core';
 import { DiffUris, Widget } from '@theia/core/lib/browser';
 import { TabBarToolbarContribution, TabBarToolbarRegistry, TabBarToolbarItem } from '@theia/core/lib/browser/shell/tab-bar-toolbar';
-import { EDITOR_CONTEXT_MENU, EditorContextMenu, EditorManager, EditorOpenerOptions, EditorWidget } from '@theia/editor/lib/browser';
+import { EditorContextMenu, EditorManager, EditorOpenerOptions, EditorWidget } from '@theia/editor/lib/browser';
 import { Git, GitFileChange, GitFileStatus } from '../common';
 import { GitRepositoryTracker } from './git-repository-tracker';
 import { GitAction, GitQuickOpenService } from './git-quick-open-service';
@@ -27,11 +27,12 @@ import { WorkspaceService } from '@theia/workspace/lib/browser';
 import { GitRepositoryProvider } from './git-repository-provider';
 import { GitErrorHandler } from '../browser/git-error-handler';
 import { ScmWidget } from '@theia/scm/lib/browser/scm-widget';
+import { ScmTreeWidget } from '@theia/scm/lib/browser/scm-tree-widget';
 import { ScmResource, ScmCommand } from '@theia/scm/lib/browser/scm-provider';
 import { ProgressService } from '@theia/core/lib/common/progress-service';
 import { GitPreferences } from './git-preferences';
-
-export const EDITOR_CONTEXT_MENU_GIT = [...EDITOR_CONTEXT_MENU, '3_git'];
+import { ColorContribution } from '@theia/core/lib/browser/color-application-contribution';
+import { ColorRegistry } from '@theia/core/lib/browser/color-registry';
 
 export namespace GIT_COMMANDS {
     export const CLONE = {
@@ -191,7 +192,7 @@ export namespace GIT_COMMANDS {
 }
 
 @injectable()
-export class GitContribution implements CommandContribution, MenuContribution, TabBarToolbarContribution {
+export class GitContribution implements CommandContribution, MenuContribution, TabBarToolbarContribution, ColorContribution {
 
     static GIT_CHECKOUT = 'git.checkout';
     static GIT_SYNC_STATUS = 'git-sync-status';
@@ -225,8 +226,8 @@ export class GitContribution implements CommandContribution, MenuContribution, T
         });
 
         const registerResourceAction = (group: string, action: MenuAction) => {
-            menus.registerMenuAction(ScmWidget.RESOURCE_INLINE_MENU, action);
-            menus.registerMenuAction([...ScmWidget.RESOURCE_CONTEXT_MENU, group], action);
+            menus.registerMenuAction(ScmTreeWidget.RESOURCE_INLINE_MENU, action);
+            menus.registerMenuAction([...ScmTreeWidget.RESOURCE_CONTEXT_MENU, group], action);
         };
 
         registerResourceAction('navigation', {
@@ -264,9 +265,37 @@ export class GitContribution implements CommandContribution, MenuContribution, T
             when: 'scmProvider == git && scmResourceGroup == merge'
         });
 
+        const registerResourceFolderAction = (group: string, action: MenuAction) => {
+            menus.registerMenuAction(ScmTreeWidget.RESOURCE_FOLDER_INLINE_MENU, action);
+            menus.registerMenuAction([...ScmTreeWidget.RESOURCE_FOLDER_CONTEXT_MENU, group], action);
+        };
+
+        registerResourceFolderAction('1_modification', {
+            commandId: GIT_COMMANDS.DISCARD.id,
+            when: 'scmProvider == git && scmResourceGroup == workingTree'
+        });
+        registerResourceFolderAction('1_modification', {
+            commandId: GIT_COMMANDS.STAGE.id,
+            when: 'scmProvider == git && scmResourceGroup == workingTree'
+        });
+
+        registerResourceFolderAction('1_modification', {
+            commandId: GIT_COMMANDS.UNSTAGE.id,
+            when: 'scmProvider == git && scmResourceGroup == index'
+        });
+
+        registerResourceFolderAction('1_modification', {
+            commandId: GIT_COMMANDS.DISCARD.id,
+            when: 'scmProvider == git && scmResourceGroup == merge'
+        });
+        registerResourceFolderAction('1_modification', {
+            commandId: GIT_COMMANDS.STAGE.id,
+            when: 'scmProvider == git && scmResourceGroup == merge'
+        });
+
         const registerResourceGroupAction = (group: string, action: MenuAction) => {
-            menus.registerMenuAction(ScmWidget.RESOURCE_GROUP_INLINE_MENU, action);
-            menus.registerMenuAction([...ScmWidget.RESOURCE_GROUP_CONTEXT_MENU, group], action);
+            menus.registerMenuAction(ScmTreeWidget.RESOURCE_GROUP_INLINE_MENU, action);
+            menus.registerMenuAction([...ScmTreeWidget.RESOURCE_GROUP_CONTEXT_MENU, group], action);
         };
 
         registerResourceGroupAction('1_modification', {
@@ -321,16 +350,7 @@ export class GitContribution implements CommandContribution, MenuContribution, T
             isEnabled: () => !!this.repositoryTracker.selectedRepository
         });
         registry.registerCommand(GIT_COMMANDS.COMMIT_AMEND, {
-            execute: () => this.withProgress(async () => {
-                try {
-                    const message = await this.quickOpenService.commitMessageForAmend();
-                    await this.commit({ message, amend: true });
-                } catch (e) {
-                    if (!(e instanceof Error) || e.message !== 'User abort.') {
-                        throw e;
-                    }
-                }
-            }),
+            execute: () => this.withProgress(async () => this.amend()),
             isEnabled: () => !!this.repositoryTracker.selectedRepository
         });
         registry.registerCommand(GIT_COMMANDS.STAGE_ALL, {
@@ -391,34 +411,47 @@ export class GitContribution implements CommandContribution, MenuContribution, T
             isEnabled: () => !!this.repositoryTracker.selectedRepository
         });
         registry.registerCommand(GIT_COMMANDS.UNSTAGE, {
-            execute: (arg: string | ScmResource) => {
-                const uri = typeof arg === 'string' ? arg : arg.sourceUri.toString();
+            execute: (arg: string |  ScmResource[] | ScmResource) => {
+                const uris =
+                    typeof arg === 'string' ? [ arg ] :
+                    Array.isArray(arg) ? arg.map(r => r.sourceUri.toString()) :
+                    [ arg.sourceUri.toString() ];
                 const provider = this.repositoryProvider.selectedScmProvider;
-                return provider && this.withProgress(() => provider.unstage(uri));
+                return provider && this.withProgress(() => provider.unstage(uris));
             },
-            isEnabled: () => !!this.repositoryProvider.selectedScmProvider
+            isEnabled: (arg: string |  ScmResource[] | ScmResource) => !!this.repositoryProvider.selectedScmProvider
+                && (!Array.isArray(arg) || arg.length !== 0)
         });
         registry.registerCommand(GIT_COMMANDS.STAGE, {
-            execute: (arg: string | ScmResource) => {
-                const uri = typeof arg === 'string' ? arg : arg.sourceUri.toString();
+            execute: (arg: string | ScmResource[] | ScmResource) => {
+                const uris =
+                    typeof arg === 'string' ? [ arg ] :
+                    Array.isArray(arg) ? arg.map(r => r.sourceUri.toString()) :
+                    [ arg.sourceUri.toString() ];
                 const provider = this.repositoryProvider.selectedScmProvider;
-                return provider && this.withProgress(() => provider.stage(uri));
+                return provider && this.withProgress(() => provider.stage(uris));
             },
-            isEnabled: () => !!this.repositoryProvider.selectedScmProvider
+            isEnabled: (arg: string |  ScmResource[] | ScmResource) => !!this.repositoryProvider.selectedScmProvider
+                && (!Array.isArray(arg) || arg.length !== 0)
         });
         registry.registerCommand(GIT_COMMANDS.DISCARD, {
-            execute: (arg: string | ScmResource) => {
-                const uri = typeof arg === 'string' ? arg : arg.sourceUri.toString();
+            execute: (arg: string | ScmResource[] | ScmResource) => {
+                const uris =
+                    typeof arg === 'string' ? [ arg ] :
+                    Array.isArray(arg) ? arg.map(r => r.sourceUri.toString()) :
+                    [ arg.sourceUri.toString() ];
                 const provider = this.repositoryProvider.selectedScmProvider;
-                return provider && this.withProgress(() => provider.discard(uri));
+                return provider && this.withProgress(() => provider.discard(uris));
             },
-            isEnabled: () => !!this.repositoryProvider.selectedScmProvider
+            isEnabled: (arg: string |  ScmResource[] | ScmResource) => !!this.repositoryProvider.selectedScmProvider
+                && (!Array.isArray(arg) || arg.length !== 0)
         });
         registry.registerCommand(GIT_COMMANDS.OPEN_CHANGED_FILE, {
             execute: (arg: string | ScmResource) => {
                 const uri = typeof arg === 'string' ? new URI(arg) : arg.sourceUri;
                 this.editorManager.open(uri, { mode: 'reveal' });
-            }
+            },
+            isVisible: (arg: string | ScmResource, isFolder: boolean) => !isFolder
         });
         registry.registerCommand(GIT_COMMANDS.STASH, {
             execute: () => this.quickOpenService.stash(),
@@ -448,9 +481,35 @@ export class GitContribution implements CommandContribution, MenuContribution, T
         });
         registry.registerCommand(GIT_COMMANDS.INIT_REPOSITORY, {
             execute: () => this.quickOpenService.initRepository(),
-            isEnabled: widget => (!widget || widget instanceof ScmWidget) && !this.repositoryProvider.selectedRepository,
-            isVisible: widget => (!widget || widget instanceof ScmWidget) && !this.repositoryProvider.selectedRepository
+            isEnabled: widget => this.workspaceService.opened && (!widget || widget instanceof ScmWidget) && !this.repositoryProvider.selectedRepository,
+            isVisible: widget => this.workspaceService.opened && (!widget || widget instanceof ScmWidget) && !this.repositoryProvider.selectedRepository
         });
+    }
+    async amend(): Promise<void> {
+        {
+            const scmRepository = this.repositoryProvider.selectedScmRepository;
+            if (!scmRepository) {
+                return;
+            }
+
+            try {
+                const lastCommit = await scmRepository.provider.amendSupport.getLastCommit();
+                if (lastCommit === undefined) {
+                    scmRepository.input.issue = {
+                        type: 'error',
+                        message: 'No previous commit to amend'
+                    };
+                    scmRepository.input.focus();
+                    return;
+                }
+                const message = await this.quickOpenService.commitMessageForAmend();
+                await this.commit({ message, amend: true });
+            } catch (e) {
+                if (!(e instanceof Error) || e.message !== 'User abort.') {
+                    throw e;
+                }
+            }
+        }
     }
 
     protected withProgress<T>(task: () => Promise<T>): Promise<T> {
@@ -524,9 +583,11 @@ export class GitContribution implements CommandContribution, MenuContribution, T
                 group: '2_other'
             })
         );
-        [GIT_COMMANDS.STASH, GIT_COMMANDS.APPLY_STASH,
-        GIT_COMMANDS.APPLY_LATEST_STASH, GIT_COMMANDS.POP_STASH,
-        GIT_COMMANDS.POP_LATEST_STASH, GIT_COMMANDS.DROP_STASH].forEach(command =>
+        [
+            GIT_COMMANDS.STASH, GIT_COMMANDS.APPLY_STASH,
+            GIT_COMMANDS.APPLY_LATEST_STASH, GIT_COMMANDS.POP_STASH,
+            GIT_COMMANDS.POP_LATEST_STASH, GIT_COMMANDS.DROP_STASH
+        ].forEach(command =>
             registerItem({
                 id: command.id,
                 command: command.id,
@@ -729,6 +790,77 @@ export class GitContribution implements CommandContribution, MenuContribution, T
             };
         }
 
+    }
+
+    /**
+     * It should be aligned with https://code.visualstudio.com/api/references/theme-color#git-colors
+     */
+    registerColors(colors: ColorRegistry): void {
+        colors.register({
+            'id': 'gitDecoration.addedResourceForeground',
+            'description': 'Color for added resources.',
+            'defaults': {
+                'light': '#587c0c',
+                'dark': '#81b88b',
+                'hc': '#1b5225'
+            }
+        }, {
+            'id': 'gitDecoration.modifiedResourceForeground',
+            'description': 'Color for modified resources.',
+            'defaults': {
+                'light': '#895503',
+                'dark': '#E2C08D',
+                'hc': '#E2C08D'
+            }
+        }, {
+            'id': 'gitDecoration.deletedResourceForeground',
+            'description': 'Color for deleted resources.',
+            'defaults': {
+                'light': '#ad0707',
+                'dark': '#c74e39',
+                'hc': '#c74e39'
+            }
+        }, {
+            'id': 'gitDecoration.untrackedResourceForeground',
+            'description': 'Color for untracked resources.',
+            'defaults': {
+                'light': '#007100',
+                'dark': '#73C991',
+                'hc': '#73C991'
+            }
+        }, {
+            'id': 'gitDecoration.conflictingResourceForeground',
+            'description': 'Color for resources with conflicts.',
+            'defaults': {
+                'light': '#6c6cc4',
+                'dark': '#6c6cc4',
+                'hc': '#6c6cc4'
+            }
+        }, {
+            'id': 'gitlens.gutterBackgroundColor',
+            'description': 'Specifies the background color of the gutter blame annotations',
+            'defaults': {
+                'dark': '#FFFFFF13',
+                'light': '#0000000C',
+                'hc': '#FFFFFF13'
+            }
+        }, {
+            'id': 'gitlens.gutterForegroundColor',
+            'description': 'Specifies the foreground color of the gutter blame annotations',
+            'defaults': {
+                'dark': '#BEBEBE',
+                'light': '#747474',
+                'hc': '#BEBEBE'
+            }
+        }, {
+            'id': 'gitlens.lineHighlightBackgroundColor',
+            'description': 'Specifies the background color of the associated line highlights in blame annotations',
+            'defaults': {
+                'dark': '#00BCF233',
+                'light': '#00BCF233',
+                'hc': '#00BCF233'
+            }
+        });
     }
 }
 export interface GitOpenFileOptions {

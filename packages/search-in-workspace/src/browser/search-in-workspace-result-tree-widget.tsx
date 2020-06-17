@@ -25,25 +25,23 @@ import {
     TreeModel,
     TreeNode,
     NodeProps,
-    LabelProvider,
     TreeProps,
     TreeExpansionService,
     ApplicationShell,
-    DiffUris,
-    FOLDER_ICON,
-    FILE_ICON
+    DiffUris
 } from '@theia/core/lib/browser';
 import { CancellationTokenSource, Emitter, Event } from '@theia/core';
 import { EditorManager, EditorDecoration, TrackedRangeStickiness, OverviewRulerLane, EditorWidget, ReplaceOperation, EditorOpenerOptions } from '@theia/editor/lib/browser';
 import { WorkspaceService } from '@theia/workspace/lib/browser';
 import { FileResourceResolver } from '@theia/filesystem/lib/browser';
-import { SearchInWorkspaceResult, SearchInWorkspaceOptions } from '../common/search-in-workspace-interface';
+import { SearchInWorkspaceResult, SearchInWorkspaceOptions, SearchMatch } from '../common/search-in-workspace-interface';
 import { SearchInWorkspaceService } from './search-in-workspace-service';
 import { MEMORY_TEXT } from './in-memory-text-resource';
 import URI from '@theia/core/lib/common/uri';
 import * as React from 'react';
 import { SearchInWorkspacePreferences } from './search-in-workspace-preferences';
 import { ProgressService } from '@theia/core';
+import { ColorRegistry } from '@theia/core/lib/browser/color-registry';
 
 const ROOT_ID = 'ResultTree';
 
@@ -51,43 +49,46 @@ export interface SearchInWorkspaceRoot extends CompositeTreeNode {
     children: SearchInWorkspaceRootFolderNode[];
 }
 export namespace SearchInWorkspaceRoot {
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     export function is(node: any): node is SearchInWorkspaceRoot {
-        return CompositeTreeNode.is(node) && node.id === ROOT_ID && node.name === ROOT_ID;
+        return CompositeTreeNode.is(node) && node.id === ROOT_ID;
     }
 }
 export interface SearchInWorkspaceRootFolderNode extends ExpandableTreeNode, SelectableTreeNode { // root folder node
+    name?: undefined
+    icon?: undefined
     children: SearchInWorkspaceFileNode[];
     parent: SearchInWorkspaceRoot;
     path: string;
     folderUri: string;
 }
 export namespace SearchInWorkspaceRootFolderNode {
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     export function is(node: any): node is SearchInWorkspaceRootFolderNode {
         return ExpandableTreeNode.is(node) && SelectableTreeNode.is(node) && 'path' in node && 'folderUri' in node && !('fileUri' in node);
     }
 }
 
 export interface SearchInWorkspaceFileNode extends ExpandableTreeNode, SelectableTreeNode { // file node
+    name?: undefined
+    icon?: undefined
     children: SearchInWorkspaceResultLineNode[];
     parent: SearchInWorkspaceRootFolderNode;
     path: string;
     fileUri: string;
-    icon?: string;
 }
 export namespace SearchInWorkspaceFileNode {
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     export function is(node: any): node is SearchInWorkspaceFileNode {
         return ExpandableTreeNode.is(node) && SelectableTreeNode.is(node) && 'path' in node && 'fileUri' in node && !('folderUri' in node);
     }
 }
 
-export interface SearchInWorkspaceResultLineNode extends SelectableTreeNode, SearchInWorkspaceResult { // line node
+export interface SearchInWorkspaceResultLineNode extends SelectableTreeNode, SearchInWorkspaceResult, SearchMatch { // line node
     parent: SearchInWorkspaceFileNode
 }
 export namespace SearchInWorkspaceResultLineNode {
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     export function is(node: any): node is SearchInWorkspaceResultLineNode {
         return SelectableTreeNode.is(node) && 'line' in node && 'character' in node && 'lineText' in node;
     }
@@ -104,21 +105,21 @@ export class SearchInWorkspaceResultTreeWidget extends TreeWidget {
 
     protected appliedDecorations = new Map<string, string[]>();
 
-    private cancelIndicator = new CancellationTokenSource();
+    cancelIndicator?: CancellationTokenSource;
 
     protected changeEmitter = new Emitter<Map<string, SearchInWorkspaceRootFolderNode>>();
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     protected focusInputEmitter = new Emitter<any>();
 
     @inject(SearchInWorkspaceService) protected readonly searchService: SearchInWorkspaceService;
     @inject(EditorManager) protected readonly editorManager: EditorManager;
     @inject(FileResourceResolver) protected readonly fileResourceResolver: FileResourceResolver;
     @inject(ApplicationShell) protected readonly shell: ApplicationShell;
-    @inject(LabelProvider) protected readonly labelProvider: LabelProvider;
     @inject(WorkspaceService) protected readonly workspaceService: WorkspaceService;
     @inject(TreeExpansionService) protected readonly expansionService: TreeExpansionService;
     @inject(SearchInWorkspacePreferences) protected readonly searchInWorkspacePreferences: SearchInWorkspacePreferences;
     @inject(ProgressService) protected readonly progressService: ProgressService;
+    @inject(ColorRegistry) protected readonly colorRegistry: ColorRegistry;
 
     constructor(
         @inject(TreeProps) readonly props: TreeProps,
@@ -129,7 +130,6 @@ export class SearchInWorkspaceResultTreeWidget extends TreeWidget {
 
         model.root = {
             id: ROOT_ID,
-            name: ROOT_ID,
             parent: undefined,
             visible: false,
             children: []
@@ -202,53 +202,53 @@ export class SearchInWorkspaceResultTreeWidget extends TreeWidget {
         this.searchTerm = searchTerm;
         const collapseValue: string = this.searchInWorkspacePreferences['search.collapseResults'];
         this.resultTree.clear();
-        this.cancelIndicator.cancel();
-        this.cancelIndicator = new CancellationTokenSource();
-        const token = this.cancelIndicator.token;
+        if (this.cancelIndicator) {
+            this.cancelIndicator.cancel();
+        }
         if (searchTerm === '') {
             this.refreshModelChildren();
             return;
         }
+        this.cancelIndicator = new CancellationTokenSource();
+        const cancelIndicator = this.cancelIndicator;
+        const token = this.cancelIndicator.token;
+        token.onCancellationRequested(() => {
+            this.changeEmitter.fire(this.resultTree);
+        });
         const progress = await this.progressService.showProgress({ text: `search: ${searchTerm}`, options: { location: 'search' } });
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        let pendingRefreshTimeout: any;
         const searchId = await this.searchService.search(searchTerm, {
             onResult: (aSearchId: number, result: SearchInWorkspaceResult) => {
                 if (token.isCancellationRequested || aSearchId !== searchId) {
                     return;
                 }
-                const { name, path } = this.filenameAndPath(result.root, result.fileUri);
+                const { path } = this.filenameAndPath(result.root, result.fileUri);
                 const tree = this.resultTree;
-                const rootFolderNode = tree.get(result.root);
-
-                if (rootFolderNode) {
-                    const fileNode = rootFolderNode.children.find(f => f.fileUri === result.fileUri);
-                    if (fileNode) {
-                        const line = this.createResultLineNode(result, fileNode);
-                        if (fileNode.children.findIndex(lineNode => lineNode.id === line.id) < 0) {
-                            fileNode.children.push(line);
-                        }
-                        this.collapseFileNode(fileNode, collapseValue);
-                    } else {
-                        const newFileNode = this.createFileNode(result.root, name, path, result.fileUri, rootFolderNode);
-                        this.collapseFileNode(newFileNode, collapseValue);
-                        const line = this.createResultLineNode(result, newFileNode);
-                        newFileNode.children.push(line);
-                        rootFolderNode.children.push(newFileNode);
-                    }
-
-                } else {
-                    const newRootFolderNode = this.createRootFolderNode(result.root);
-                    tree.set(result.root, newRootFolderNode);
-                    const newFileNode = this.createFileNode(result.root, name, path, result.fileUri, newRootFolderNode);
-                    this.collapseFileNode(newFileNode, collapseValue);
-                    newFileNode.children.push(this.createResultLineNode(result, newFileNode));
-                    newRootFolderNode.children.push(newFileNode);
+                let rootFolderNode = tree.get(result.root);
+                if (!rootFolderNode) {
+                    rootFolderNode = this.createRootFolderNode(result.root);
+                    tree.set(result.root, rootFolderNode);
                 }
+                let fileNode = rootFolderNode.children.find(f => f.fileUri === result.fileUri);
+                if (!fileNode) {
+                    fileNode = this.createFileNode(result.root, path, result.fileUri, rootFolderNode);
+                    rootFolderNode.children.push(fileNode);
+                }
+                for (const match of result.matches) {
+                    const line = this.createResultLineNode(result, match, fileNode);
+                    if (fileNode.children.findIndex(lineNode => lineNode.id === line.id) < 0) {
+                        fileNode.children.push(line);
+                    }
+                }
+                this.collapseFileNode(fileNode, collapseValue);
+                if (pendingRefreshTimeout) {
+                    clearTimeout(pendingRefreshTimeout);
+                }
+                pendingRefreshTimeout = setTimeout(() => this.refreshModelChildren(), 100);
             },
             onDone: () => {
-                progress.cancel();
-                if (token.isCancellationRequested) {
-                    return;
-                }
+                cancelIndicator.cancel();
                 // Sort the result map by folder URI.
                 this.resultTree = new Map([...this.resultTree]
                     .sort((a: [string, SearchInWorkspaceRootFolderNode], b: [string, SearchInWorkspaceRootFolderNode]) => this.compare(a[1].folderUri, b[1].folderUri)));
@@ -259,12 +259,13 @@ export class SearchInWorkspaceResultTreeWidget extends TreeWidget {
                     });
                 this.refreshModelChildren();
             }
-        }, searchOptions).catch(e => { return; });
+        }, searchOptions).catch(() => undefined);
         token.onCancellationRequested(() => {
             progress.cancel();
             if (searchId) {
                 this.searchService.cancel(searchId);
             }
+            this.cancelIndicator = undefined;
         });
     }
 
@@ -302,7 +303,6 @@ export class SearchInWorkspaceResultTreeWidget extends TreeWidget {
 
     protected async refreshModelChildren(): Promise<void> {
         if (SearchInWorkspaceRoot.is(this.model.root)) {
-            await this.updateFileIcons();
             this.model.root.children = Array.from(this.resultTree.values());
             this.model.refresh();
             this.updateCurrentEditorDecorations();
@@ -338,46 +338,35 @@ export class SearchInWorkspaceResultTreeWidget extends TreeWidget {
         const uri = new URI(rootUri);
         return {
             selected: false,
-            name: uri.displayName,
             path: uri.path.toString(),
             folderUri: rootUri,
             children: [],
             expanded: true,
             id: rootUri,
             parent: this.model.root as SearchInWorkspaceRoot,
-            icon: FOLDER_ICON,
             visible: this.workspaceService.isMultiRootWorkspaceOpened
         };
     }
 
-    protected createFileNode(rootUri: string, name: string, path: string, fileUri: string, parent: SearchInWorkspaceRootFolderNode): SearchInWorkspaceFileNode {
+    protected createFileNode(rootUri: string, path: string, fileUri: string, parent: SearchInWorkspaceRootFolderNode): SearchInWorkspaceFileNode {
         return {
             selected: false,
-            name,
             path,
             children: [],
             expanded: true,
             id: `${rootUri}::${fileUri}`,
             parent,
-            icon: FILE_ICON, // placeholder. updateFileIcons() will replace the placeholders with icons used in the tree rendering
             fileUri
         };
     }
 
-    protected async updateFileIcons(): Promise<void> {
-        for (const folderNode of this.resultTree.values()) {
-            for (const fileNode of folderNode.children) {
-                fileNode.icon = await this.labelProvider.getIcon(new URI(fileNode.fileUri).withScheme('file'));
-            }
-        }
-    }
-
-    protected createResultLineNode(result: SearchInWorkspaceResult, fileNode: SearchInWorkspaceFileNode): SearchInWorkspaceResultLineNode {
+    protected createResultLineNode(result: SearchInWorkspaceResult, match: SearchMatch, fileNode: SearchInWorkspaceFileNode): SearchInWorkspaceResultLineNode {
         return {
             ...result,
+            ...match,
             selected: false,
-            id: result.fileUri + '-' + result.line + '-' + result.character + '-' + result.length,
-            name: result.lineText,
+            id: result.fileUri + '-' + match.line + '-' + match.character + '-' + match.length,
+            name: typeof match.lineText === 'string' ? match.lineText : match.lineText.text,
             parent: fileNode
         };
     }
@@ -596,17 +585,18 @@ export class SearchInWorkspaceResultTreeWidget extends TreeWidget {
     }
 
     protected renderRootFolderNode(node: SearchInWorkspaceRootFolderNode): React.ReactNode {
-        const icon = node.icon;
         return <div className='result'>
             <div className='result-head'>
                 <div className={`result-head-info noWrapInfo noselect ${node.selected ? 'selected' : ''}`}>
-                    <span className={`file-icon ${icon || ''}`}></span>
-                    <span className={'file-name'}>
-                        {node.name}
-                    </span>
-                    <span className={'file-path'}>
-                        {node.path}
-                    </span>
+                    <span className={`file-icon ${this.toNodeIcon(node) || ''}`}></span>
+                    <div className='noWrapInfo'>
+                        <span className={'file-name'}>
+                            {this.toNodeName(node)}
+                        </span>
+                        <span className={'file-path'}>
+                            {node.path}
+                        </span>
+                    </div>
                 </div>
                 <span className='notification-count-container highlighted-count-container'>
                     <span className='notification-count'>
@@ -618,18 +608,19 @@ export class SearchInWorkspaceResultTreeWidget extends TreeWidget {
     }
 
     protected renderFileNode(node: SearchInWorkspaceFileNode): React.ReactNode {
-        const icon = node.icon;
         return <div className='result'>
             <div className='result-head'>
                 <div className={`result-head-info noWrapInfo noselect ${node.selected ? 'selected' : ''}`}
                     title={new URI(node.fileUri).path.toString()}>
-                    <span className={`file-icon ${icon || ''}`}></span>
-                    <span className={'file-name'}>
-                        {node.name}
-                    </span>
-                    <span className={'file-path'}>
-                        {node.path}
-                    </span>
+                    <span className={`file-icon ${this.toNodeIcon(node)}`}></span>
+                    <div className='noWrapInfo'>
+                        <span className={'file-name'}>
+                            {this.toNodeName(node)}
+                        </span>
+                        <span className={'file-path'}>
+                            {node.path}
+                        </span>
+                    </div>
                 </div>
                 <span className='notification-count-container'>
                     <span className='notification-count'>
@@ -641,15 +632,27 @@ export class SearchInWorkspaceResultTreeWidget extends TreeWidget {
     }
 
     protected renderResultLineNode(node: SearchInWorkspaceResultLineNode): React.ReactNode {
-        const prefix = node.character > 26 ? '... ' : '';
-        return <div className={`resultLine noWrapInfo ${node.selected ? 'selected' : ''}`} title={node.lineText.trim()}>
+        let before;
+        let after;
+        let title;
+        if (typeof node.lineText === 'string') {
+            const prefix = node.character > 26 ? '... ' : '';
+            before = prefix + node.lineText.substr(0, node.character - 1).substr(-25);
+            after = node.lineText.substr(node.character - 1 + node.length, 75);
+            title = node.lineText.trim();
+        } else {
+            before = node.lineText.text.substr(0, node.lineText.character);
+            after = node.lineText.text.substr(node.lineText.character + node.length);
+            title = node.lineText.text.trim();
+        }
+        return <div className={`resultLine noWrapInfo ${node.selected ? 'selected' : ''}`} title={title}>
             {this.searchInWorkspacePreferences['search.lineNumbers'] && <span className='theia-siw-lineNumber'>{node.line}</span>}
             <span>
-                {prefix + node.lineText.substr(0, node.character - 1).substr(-25)}
+                {before}
             </span>
             {this.renderMatchLinePart(node)}
             <span>
-                {node.lineText.substr(node.character - 1 + node.length, 75)}
+                {after}
             </span>
         </div>;
     }
@@ -657,8 +660,11 @@ export class SearchInWorkspaceResultTreeWidget extends TreeWidget {
     protected renderMatchLinePart(node: SearchInWorkspaceResultLineNode): React.ReactNode {
         const replaceTerm = this._replaceTerm !== '' && this._showReplaceButtons ? <span className='replace-term'>{this._replaceTerm}</span> : '';
         const className = `match${this._showReplaceButtons ? ' strike-through' : ''}`;
+        const match = typeof node.lineText === 'string' ?
+            node.lineText.substr(node.character - 1, node.length)
+            : node.lineText.text.substr(node.lineText.character - 1, node.length);
         return <React.Fragment>
-            <span className={className}>{node.lineText.substr(node.character - 1, node.length)}</span>
+            <span className={className}>{match}</span>
             {replaceTerm}
         </React.Fragment>;
     }
@@ -755,8 +761,10 @@ export class SearchInWorkspaceResultTreeWidget extends TreeWidget {
                     },
                     options: {
                         overviewRuler: {
-                            color: 'rgba(230, 0, 0, 1)',
-                            position: OverviewRulerLane.Full
+                            color: {
+                                id: 'editor.findMatchHighlightBackground'
+                            },
+                            position: OverviewRulerLane.Center
                         },
                         className: res.selected ? 'current-search-in-workspace-editor-match' : 'search-in-workspace-editor-match',
                         stickiness: TrackedRangeStickiness.GrowsOnlyWhenTypingBefore

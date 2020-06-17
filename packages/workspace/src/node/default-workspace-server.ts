@@ -17,7 +17,6 @@
 import * as path from 'path';
 import * as yargs from 'yargs';
 import * as fs from 'fs-extra';
-import * as os from 'os';
 import * as jsoncparser from 'jsonc-parser';
 
 import { injectable, inject, postConstruct } from 'inversify';
@@ -25,6 +24,7 @@ import { FileUri } from '@theia/core/lib/node';
 import { CliContribution } from '@theia/core/lib/node/cli';
 import { Deferred } from '@theia/core/lib/common/promise-util';
 import { WorkspaceServer } from '../common';
+import { EnvVariablesServer } from '@theia/core/lib/common/env-variables';
 
 @injectable()
 export class WorkspaceCliContribution implements CliContribution {
@@ -65,6 +65,9 @@ export class DefaultWorkspaceServer implements WorkspaceServer {
 
     @inject(WorkspaceCliContribution)
     protected readonly cliParams: WorkspaceCliContribution;
+
+    @inject(EnvVariablesServer)
+    protected readonly envServer: EnvVariablesServer;
 
     @postConstruct()
     protected async init(): Promise<void> {
@@ -120,8 +123,8 @@ export class DefaultWorkspaceServer implements WorkspaceServer {
         return listUri;
     }
 
-    protected workspaceStillExist(wspath: string): boolean {
-        return fs.pathExistsSync(FileUri.fsPath(wspath));
+    protected workspaceStillExist(workspaceRootUri: string): boolean {
+        return fs.pathExistsSync(FileUri.fsPath(workspaceRootUri));
     }
 
     protected async getWorkspaceURIFromCli(): Promise<string | undefined> {
@@ -134,36 +137,37 @@ export class DefaultWorkspaceServer implements WorkspaceServer {
      * @param uri most recently used uri
      */
     protected async writeToUserHome(data: RecentWorkspacePathsData): Promise<void> {
-        const file = this.getUserStoragePath();
+        const file = await this.getUserStoragePath();
         await this.writeToFile(file, data);
     }
 
-    protected async writeToFile(filePath: string, data: object): Promise<void> {
-        if (!await fs.pathExists(filePath)) {
-            await fs.mkdirs(path.resolve(filePath, '..'));
+    protected async writeToFile(fsPath: string, data: object): Promise<void> {
+        if (!await fs.pathExists(fsPath)) {
+            await fs.mkdirs(path.resolve(fsPath, '..'));
         }
-        await fs.writeJson(filePath, data);
+        await fs.writeJson(fsPath, data);
     }
 
     /**
      * Reads the most recently used workspace root from the user's home directory.
      */
     protected async readRecentWorkspacePathsFromUserHome(): Promise<RecentWorkspacePathsData | undefined> {
-        const filePath = this.getUserStoragePath();
-        const data = await this.readJsonFromFile(filePath);
+        const fsPath = await this.getUserStoragePath();
+        const data = await this.readJsonFromFile(fsPath);
         return RecentWorkspacePathsData.is(data) ? data : undefined;
     }
 
-    protected async readJsonFromFile(filePath: string): Promise<object | undefined> {
-        if (await fs.pathExists(filePath)) {
-            const rawContent = await fs.readFile(filePath, 'utf-8');
+    protected async readJsonFromFile(fsPath: string): Promise<object | undefined> {
+        if (await fs.pathExists(fsPath)) {
+            const rawContent = await fs.readFile(fsPath, 'utf-8');
             const strippedContent = jsoncparser.stripComments(rawContent);
             return jsoncparser.parse(strippedContent);
         }
     }
 
-    protected getUserStoragePath(): string {
-        return path.resolve(os.homedir(), '.theia', 'recentworkspace.json');
+    protected async getUserStoragePath(): Promise<string> {
+        const configDirUri = await this.envServer.getConfigDirUri();
+        return path.resolve(FileUri.fsPath(configDirUri), 'recentworkspace.json');
     }
 }
 
@@ -173,7 +177,7 @@ interface RecentWorkspacePathsData {
 
 namespace RecentWorkspacePathsData {
     export function is(data: Object | undefined): data is RecentWorkspacePathsData {
-        // tslint:disable-next-line:no-any
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         return !!data && typeof data === 'object' && ('recentRoots' in data) && Array.isArray((data as any)['recentRoots']);
     }
 }

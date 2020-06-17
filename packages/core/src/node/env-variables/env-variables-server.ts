@@ -1,5 +1,5 @@
 /********************************************************************************
- * Copyright (C) 2018 Red Hat, Inc. and others.
+ * Copyright (C) 2018-2020 Red Hat, Inc. and others.
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0 which is available at
@@ -14,14 +14,18 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  ********************************************************************************/
 
+import { join } from 'path';
+import { homedir } from 'os';
 import { injectable } from 'inversify';
 import { EnvVariable, EnvVariablesServer } from '../../common/env-variables';
 import { isWindows } from '../../common/os';
+import { FileUri } from '../file-uri';
 
 @injectable()
 export class EnvVariablesServerImpl implements EnvVariablesServer {
 
     protected readonly envs: { [key: string]: EnvVariable } = {};
+    protected readonly configDirUri = FileUri.create(join(homedir(), '.theia')).toString();
 
     constructor() {
         const prEnv = process.env;
@@ -44,4 +48,9 @@ export class EnvVariablesServerImpl implements EnvVariablesServer {
         }
         return this.envs[key];
     }
+
+    async getConfigDirUri(): Promise<string> {
+        return this.configDirUri;
+    }
+
 }

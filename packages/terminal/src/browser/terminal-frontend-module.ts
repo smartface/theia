@@ -14,6 +14,9 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  ********************************************************************************/
 
+import '../../src/browser/style/terminal.css';
+import 'xterm/css/xterm.css';
+
 import { ContainerModule, Container } from 'inversify';
 import { CommandContribution, MenuContribution } from '@theia/core/lib/common';
 import { bindContributionProvider } from '@theia/core';
@@ -25,7 +28,7 @@ import { TerminalWidget, TerminalWidgetOptions } from './base/terminal-widget';
 import { ITerminalServer, terminalPath } from '../common/terminal-protocol';
 import { TerminalWatcher } from '../common/terminal-watcher';
 import { IShellTerminalServer, shellTerminalPath, ShellTerminalServerProxy } from '../common/shell-terminal-protocol';
-import { TerminalActiveContext } from './terminal-keybinding-contexts';
+import { TerminalActiveContext, TerminalSearchVisibleContext } from './terminal-keybinding-contexts';
 import { createCommonBindings } from '../common/terminal-common-module';
 import { TerminalService } from './base/terminal-service';
 import { bindTerminalPreferences } from './terminal-preferences';
@@ -33,15 +36,17 @@ import { URLMatcher, LocalhostMatcher } from './terminal-linkmatcher';
 import { TerminalContribution } from './terminal-contribution';
 import { TerminalLinkmatcherFiles } from './terminal-linkmatcher-files';
 import { TerminalLinkmatcherDiffPre, TerminalLinkmatcherDiffPost } from './terminal-linkmatcher-diff';
+import { TerminalSearchWidgetFactory } from './search/terminal-search-widget';
 import { TerminalQuickOpenService, TerminalQuickOpenContribution } from './terminal-quick-open-service';
-
-import '../../src/browser/terminal.css';
-import 'xterm/lib/xterm.css';
+import { createTerminalSearchFactory } from './search/terminal-search-container';
 import { TerminalCopyOnSelectionHandler } from './terminal-copy-on-selection-handler';
+import { ColorContribution } from '@theia/core/lib/browser/color-application-contribution';
+import { TerminalThemeService } from './terminal-theme-service';
 
 export default new ContainerModule(bind => {
     bindTerminalPreferences(bind);
     bind(KeybindingContext).to(TerminalActiveContext).inSingletonScope();
+    bind(KeybindingContext).to(TerminalSearchVisibleContext).inSingletonScope();
 
     bind(TerminalWidget).to(TerminalWidgetImpl).inTransientScope();
     bind(TerminalWatcher).toSelf().inSingletonScope();
@@ -63,6 +68,8 @@ export default new ContainerModule(bind => {
             child.bind(TerminalWidgetOptions).toConstantValue(widgetOptions);
             child.bind('terminal-dom-id').toConstantValue(domId);
 
+            child.bind(TerminalSearchWidgetFactory).toDynamicValue(context => createTerminalSearchFactory(context.container));
+
             return child.get(TerminalWidget);
         }
     }));
@@ -75,9 +82,10 @@ export default new ContainerModule(bind => {
         bind(identifier).toService(TerminalQuickOpenContribution);
     }
 
+    bind(TerminalThemeService).toSelf().inSingletonScope();
     bind(TerminalFrontendContribution).toSelf().inSingletonScope();
     bind(TerminalService).toService(TerminalFrontendContribution);
-    for (const identifier of [CommandContribution, MenuContribution, KeybindingContribution, TabBarToolbarContribution]) {
+    for (const identifier of [CommandContribution, MenuContribution, KeybindingContribution, TabBarToolbarContribution, ColorContribution]) {
         bind(identifier).toService(TerminalFrontendContribution);
     }
 

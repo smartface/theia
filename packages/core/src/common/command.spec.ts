@@ -21,7 +21,7 @@ import * as chai from 'chai';
 const expect = chai.expect;
 let commandRegistry: CommandRegistry;
 
-/* tslint:disable:no-unused-expression */
+/* eslint-disable no-unused-expressions */
 
 describe('Commands', () => {
 
@@ -37,15 +37,15 @@ describe('Commands', () => {
         expect('abc').equals(result);
     });
 
-    it('should execute a given command, and add it to recently used', async () => {
+    it('should add command to recently used', async () => {
         const commandId = 'stub';
         const command: Command = { id: commandId };
         commandRegistry.registerCommand(command, new StubCommandHandler());
-        await commandRegistry.executeCommand(commandId);
+        commandRegistry.addRecentCommand(command);
         expect(commandRegistry.recent.length).equal(1);
     });
 
-    it('should execute multiple commands, and add them to recently used in the order they were used', async () => {
+    it('should add multiple commands to recently used in the order they were used', async () => {
         const commandIds = ['a', 'b', 'c'];
         const commands: Command[] = [
             { id: commandIds[0] },
@@ -59,9 +59,9 @@ describe('Commands', () => {
         });
 
         // Execute order c, b, a.
-        await commandRegistry.executeCommand(commandIds[2]);
-        await commandRegistry.executeCommand(commandIds[1]);
-        await commandRegistry.executeCommand(commandIds[0]);
+        commandRegistry.addRecentCommand(commands[2]);
+        commandRegistry.addRecentCommand(commands[1]);
+        commandRegistry.addRecentCommand(commands[0]);
 
         // Expect recently used to be a, b, c.
         const result: Command[] = commandRegistry.recent;
@@ -72,7 +72,7 @@ describe('Commands', () => {
         expect(result[2].id).equal(commandIds[2]);
     });
 
-    it('should execute a command that\'s already been executed, and add it to the top of the most recently used', async () => {
+    it('should add a previously used command to the top of the most recently used', async () => {
         const commandIds = ['a', 'b', 'c'];
         const commands: Command[] = [
             { id: commandIds[0] },
@@ -86,10 +86,10 @@ describe('Commands', () => {
         });
 
         // Execute order a, b, c, a.
-        await commandRegistry.executeCommand(commandIds[0]);
-        await commandRegistry.executeCommand(commandIds[1]);
-        await commandRegistry.executeCommand(commandIds[2]);
-        await commandRegistry.executeCommand(commandIds[0]);
+        commandRegistry.addRecentCommand(commands[0]);
+        commandRegistry.addRecentCommand(commands[1]);
+        commandRegistry.addRecentCommand(commands[2]);
+        commandRegistry.addRecentCommand(commands[0]);
 
         // Expect recently used to be a, b, c.
         const result: Command[] = commandRegistry.recent;
@@ -114,9 +114,9 @@ describe('Commands', () => {
         });
 
         // Execute each command.
-        await commandRegistry.executeCommand(commandIds[0]);
-        await commandRegistry.executeCommand(commandIds[1]);
-        await commandRegistry.executeCommand(commandIds[2]);
+        commandRegistry.addRecentCommand(commands[0]);
+        commandRegistry.addRecentCommand(commands[1]);
+        commandRegistry.addRecentCommand(commands[2]);
 
         // Clear the list of recently used commands.
         commandRegistry.clearCommandHistory();
@@ -139,6 +139,48 @@ describe('Commands', () => {
         commandRegistry.registerHandler('id', new StubCommandHandler());
         commandRegistry.registerHandler('id', new NeverActiveStubCommandHandler());
         expect(commandRegistry.getAllHandlers('id').length).to.be.equal(2);
+    });
+
+    describe('compareCommands', () => {
+
+        it('should sort command \'a\' before command \'b\' with categories', () => {
+            const a: Command = { id: 'a', category: 'a', label: 'a' };
+            const b: Command = { id: 'b', category: 'b', label: 'b' };
+            expect(Command.compareCommands(a, b)).to.equal(-1);
+            expect(Command.compareCommands(b, a)).to.equal(1);
+        });
+
+        it('should sort command \'a\' before command \'b\' without categories', () => {
+            const a: Command = { id: 'a', label: 'a' };
+            const b: Command = { id: 'b', label: 'b' };
+            expect(Command.compareCommands(a, b)).to.equal(-1);
+            expect(Command.compareCommands(b, a)).to.equal(1);
+        });
+
+        it('should sort command \'a\' before command \'b\' with mix-match categories', () => {
+            const a: Command = { id: 'a', category: 'a', label: 'a' };
+            const b: Command = { id: 'b', label: 'a' };
+            expect(Command.compareCommands(a, b)).to.equal(1);
+            expect(Command.compareCommands(b, a)).to.equal(-1);
+        });
+
+        it('should sort irregardless of casing', () => {
+            const lowercase: Command = { id: 'a', label: 'a' };
+            const uppercase: Command = { id: 'a', label: 'A' };
+            expect(Command.compareCommands(lowercase, uppercase)).to.equal(0);
+        });
+
+        it('should not sort if commands are equal', () => {
+            const a: Command = { id: 'a', label: 'a' };
+            expect(Command.compareCommands(a, a)).to.equal(0);
+        });
+
+        it('should not sort commands without labels', () => {
+            const a: Command = { id: 'a' };
+            const b: Command = { id: 'b' };
+            expect(Command.compareCommands(a, b)).to.equal(0);
+        });
+
     });
 
 });

@@ -53,7 +53,7 @@ import { LabelParser } from './label-parser';
 import { LabelProvider, LabelProviderContribution, DefaultUriLabelProviderContribution } from './label-provider';
 import { PreferenceService } from './preferences';
 import { ContextMenuRenderer } from './context-menu-renderer';
-import { ThemingCommandContribution, ThemeService, BuiltinThemeProvider } from './theming';
+import { ThemeService, BuiltinThemeProvider } from './theming';
 import { ConnectionStatusService, FrontendConnectionStatusService, ApplicationConnectionStatusContribution, PingService } from './connection-status-service';
 import { DiffUriLabelProviderContribution } from './diff-uris';
 import { ApplicationServer, applicationPath } from '../common/application-protocol';
@@ -86,13 +86,30 @@ import { bindResourceProvider, bindMessageService, bindPreferenceService } from 
 import { ColorRegistry } from './color-registry';
 import { ColorContribution, ColorApplicationContribution } from './color-application-contribution';
 import { ExternalUriService } from './external-uri-service';
+import { IconThemeService, NoneIconTheme } from './icon-theme-service';
+import { IconThemeApplicationContribution, IconThemeContribution, DefaultFileIconThemeContribution } from './icon-theme-contribution';
+import { TreeLabelProvider } from './tree/tree-label-provider';
+import { ProgressBar } from './progress-bar';
+import { ProgressBarFactory, ProgressBarOptions } from './progress-bar-factory';
+import { CommandOpenHandler } from './command-open-handler';
 
 export { bindResourceProvider, bindMessageService, bindPreferenceService };
+
+ColorApplicationContribution.initBackground();
 
 export const frontendApplicationModule = new ContainerModule((bind, unbind, isBound, rebind) => {
     const themeService = ThemeService.get();
     themeService.register(...BuiltinThemeProvider.themes);
     themeService.startupTheme();
+
+    bind(NoneIconTheme).toSelf().inSingletonScope();
+    bind(LabelProviderContribution).toService(NoneIconTheme);
+    bind(IconThemeService).toSelf().inSingletonScope();
+    bindContributionProvider(bind, IconThemeContribution);
+    bind(DefaultFileIconThemeContribution).toSelf().inSingletonScope();
+    bind(IconThemeContribution).toService(DefaultFileIconThemeContribution);
+    bind(IconThemeApplicationContribution).toSelf().inSingletonScope();
+    bind(FrontendApplicationContribution).toService(IconThemeApplicationContribution);
 
     bind(ColorRegistry).toSelf().inSingletonScope();
     bindContributionProvider(bind, ColorContribution);
@@ -130,7 +147,8 @@ export const frontendApplicationModule = new ContainerModule((bind, unbind, isBo
     bind(TabBarRendererFactory).toFactory(context => () => {
         const contextMenuRenderer = context.container.get<ContextMenuRenderer>(ContextMenuRenderer);
         const decoratorService = context.container.get<TabBarDecoratorService>(TabBarDecoratorService);
-        return new TabBarRenderer(contextMenuRenderer, decoratorService);
+        const iconThemeService = context.container.get<IconThemeService>(IconThemeService);
+        return new TabBarRenderer(contextMenuRenderer, decoratorService, iconThemeService);
     });
 
     bindContributionProvider(bind, TabBarDecorator);
@@ -143,6 +161,9 @@ export const frontendApplicationModule = new ContainerModule((bind, unbind, isBo
     bind(ExternalUriService).toSelf().inSingletonScope();
     bind(HttpOpenHandler).toSelf().inSingletonScope();
     bind(OpenHandler).toService(HttpOpenHandler);
+
+    bind(CommandOpenHandler).toSelf().inSingletonScope();
+    bind(OpenHandler).toService(CommandOpenHandler);
 
     bindContributionProvider(bind, ApplicationShellLayoutMigration);
     bind<ApplicationShellLayoutMigration>(ApplicationShellLayoutMigration).toConstantValue({
@@ -190,7 +211,7 @@ export const frontendApplicationModule = new ContainerModule((bind, unbind, isBo
 
     bind(ResourceContextKey).toSelf().inSingletonScope();
     bind(CommonFrontendContribution).toSelf().inSingletonScope();
-    [FrontendApplicationContribution, CommandContribution, KeybindingContribution, MenuContribution].forEach(serviceIdentifier =>
+    [FrontendApplicationContribution, CommandContribution, KeybindingContribution, MenuContribution, ColorContribution].forEach(serviceIdentifier =>
         bind(serviceIdentifier).toService(CommonFrontendContribution)
     );
 
@@ -230,6 +251,9 @@ export const frontendApplicationModule = new ContainerModule((bind, unbind, isBo
     bind(LabelProviderContribution).to(DefaultUriLabelProviderContribution).inSingletonScope();
     bind(LabelProviderContribution).to(DiffUriLabelProviderContribution).inSingletonScope();
 
+    bind(TreeLabelProvider).toSelf().inSingletonScope();
+    bind(LabelProviderContribution).toService(TreeLabelProvider);
+
     bindPreferenceService(bind);
     bind(FrontendApplicationContribution).toService(PreferenceService);
 
@@ -265,11 +289,6 @@ export const frontendApplicationModule = new ContainerModule((bind, unbind, isBo
 
     bind(ThemeService).toDynamicValue(() => ThemeService.get());
 
-    bind(ThemingCommandContribution).toSelf().inSingletonScope();
-    [CommandContribution, MenuContribution].forEach(serviceIdentifier =>
-        bind(serviceIdentifier).toService(ThemingCommandContribution),
-    );
-
     bindCorePreferences(bind);
 
     bind(MimeService).toSelf().inSingletonScope();
@@ -295,6 +314,12 @@ export const frontendApplicationModule = new ContainerModule((bind, unbind, isBo
     bind(ProgressStatusBarItem).toSelf().inSingletonScope();
     bind(ProgressClient).toService(DispatchingProgressClient);
     bind(ProgressService).toSelf().inSingletonScope();
+    bind(ProgressBarFactory).toFactory(context => (options: ProgressBarOptions) => {
+        const childContainer = context.container.createChild();
+        childContainer.bind(ProgressBarOptions).toConstantValue(options);
+        childContainer.bind(ProgressBar).toSelf().inSingletonScope();
+        return childContainer.get(ProgressBar);
+    });
 
     bind(ContextMenuContext).toSelf().inSingletonScope();
 });

@@ -65,6 +65,7 @@ Some additional tools and libraries are needed depending on your platform:
   - [make](https://www.gnu.org/software/make/)
   - [gcc](https://gcc.gnu.org/) (or another compiling toolchain)
   - [pkg-config](https://www.freedesktop.org/wiki/Software/pkg-config/)
+  - build-essential: `sudo apt-get install build-essential`
   - Dependencies for `native-keymap` node native extension:
     - Debian-based: `sudo apt-get install libx11-dev libxkbfile-dev`
     - Red Hat-based: `sudo yum install libX11-devel.x86_64 libxkbfile-devel.x86_64 # or .i686`
@@ -74,7 +75,7 @@ Some additional tools and libraries are needed depending on your platform:
   - [nvm](https://github.com/nvm-sh/nvm) is recommended to easily switch between Node.js versions.
 
 - Windows
-  - [nvm-windows](https://github.com/coreybutler/nvm-windows) addresses the same issue as the Unix [nvm](https://github.com/nvm-sh/nvm) shell tool, although they are completely separate projects.
+  - We recommend using [`scoop`](https://scoop.sh/). The detailed steps are [here](#building-on-windows).
 
 ## Quick Start
 
@@ -111,9 +112,9 @@ Start your browser on https://localhost:3000.
 
 ### Run the browser example with Gitpod
 
-[Gitpod](http://gitpod.io/) is a Theia-based IDE for GitHub.
+[Gitpod](https://www.gitpod.io/) is a Theia-based IDE for GitHub.
 You can start by prefixing any GitHub URL in the Theia repository with `gitpod.io/#`:
-- Open http://gitpod.io/#https://github.com/eclipse-theia/theia to start development with the master branch.
+- Open https://gitpod.io/#https://github.com/eclipse-theia/theia to start development with the master branch.
 - Gitpod will start a properly configured for Theia development workspace, clone and build the Theia repository.
 - After the build is finished, run from the terminal in Gitpod:
 
@@ -311,7 +312,8 @@ You should be able to see message of `[${server-name}: ${server-PID}]: IPC start
 
 ## Testing
 
-See the [testing](Testing.md) documentation.
+- See the [unit testing](Testing.md) documentation.
+- See the [API integration testing](api-testing.md) documentation.
 
 ## Code coverage
 
@@ -323,35 +325,22 @@ etc.) by opening `packages/<package name>/coverage/index.html`.
 
 ## Building on Windows
 
-Run cmd.exe as an administrator and install `choco` by copy-pasting the command
-to your console:
-
-    @"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -Command "iex ((New-Object System.Net.WebClient).DownloadString('https://chocolatey.org/install.ps1'))" && SET "PATH=%PATH%;%ALLUSERSPROFILE%\chocolatey\bin"
-
-Install `yarn` via `choco`. The `yarn` installation ensures that you will have
-Node.js and npm too:
-
-    choco install yarn
-
-Install `git` via `choco`
-
-    choco install git
-
-Install the correct version of `yarn` (The version is important)
-
-    choco install yarn --version 1.7.0 -y
-
-Install Windows-Build-Tools.
-Run PowerShell as an administrator and copy-paste the below command:
-
-    npm --add-python-to-path install --global --production windows-build-tools
+ - Install [`scoop`](https://github.com/lukesampson/scoop#installation).
+ - Install [`nvm`](https://github.com/coreybutler/nvm-windows) with scoop: `scoop install nvm`.
+ - Install Node.js with `nvm`: `nvm install 10.15.3`, then use it: `nvm use 10.15.3`. You can list all available Node.js versions with `nvm list available` if you want to pick another version.
+ - Install `yarn`: `scoop install yarn`.
+ - Install [`windows-build-tools`](https://github.com/felixrieseberg/windows-build-tools). Run `PowerShell` as _Administrator_ and copy paste the following: `npm --add-python-to-path install --global --production windows-build-tools`
 
 Clone, build and run Theia.
 Using Git Bash as administrator:
 
-    git clone https://github.com/eclipse-theia/theia.git && cd theia && yarn && cd examples/browser && yarn run start
+    git clone https://github.com/eclipse-theia/theia.git && cd theia && yarn && yarn --cwd examples\browser start
+
+If you do not have Git Bash installed on your system, [get one](https://gitforwindows.org/), or use `scoop`: `scoop install git`.
 
 ## Troubleshooting
+
+> First make sure that you follow the steps given in the [docs](https://github.com/eclipse-theia/theia/blob/master/doc/Developing.md#run-the-browser-based-example-applicatio) correctly.
 
 ### Linux
 
@@ -364,13 +353,9 @@ It can be done like so:
 
 ### Windows
 
-Theia uses native modules and also requires Python 2.x to be installed on the
-system when building the application.
+If you see `LINK : fatal error LNK1104: cannot open file 'C:\\Users\\path\\to\\node.lib' [C:\path\to\theia\node_modules\drivelist\build\drivelist.vcxproj]`, then set the Visual Studio version manually with `npm config set msvs_version 2017 --global`. Note, if you have `2015` installed, use `2015` instead of `2017.`
 
- - One can get all the [all-in-one packages] by running
- `npm install --global windows-build-tools` script.
-
- If you are facing with `EPERM: operation not permitted` or `permission denied`
+If you are facing with `EPERM: operation not permitted` or `permission denied`
 errors while building, testing or running the application then;
 
  - You don't have write access to the installation directory.
@@ -383,16 +368,9 @@ errors while building, testing or running the application then;
  See [here](https://github.com/npm/npm/issues/13461#issuecomment-282556281).
  - Still having issues on Windows? File a [bug]. We are working on Linux or OS X
  operating systems. Hence we are more than happy to receive any Windows-related
- feedbacks, bug reports.
+ feedbacks, [bug](https://github.com/eclipse-theia/theia/issues) reports.
 
-If you have accidentally installed the wrong `yarn` version, you have to remove it, then reinstall it.
-
- - Run PowerShell as an administrator.
- - Run: choco uninstall yarn -y
- - Run: choco install yarn --version 1.7.0 -y
-
-[all-in-one packages]: https://github.com/felixrieseberg/windows-build-tools
-[bug]: https://github.com/eclipse-theia/theia/issues
+If you're still struggling with the build but you use Windows 10, the you can enable the `Windows Subsystem for Linux` and you can get a Linux distro for free.
 
 ### macOS
 

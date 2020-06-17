@@ -31,7 +31,7 @@ export class HostedPluginReader implements BackendApplicationContribution {
     protected readonly logger: ILogger;
 
     @inject(MetadataScanner)
-    private readonly scanner: MetadataScanner;
+    protected readonly scanner: MetadataScanner;
 
     @optional()
     @multiInject(MetadataProcessor) private readonly metadataProcessors: MetadataProcessor[];
@@ -50,7 +50,7 @@ export class HostedPluginReader implements BackendApplicationContribution {
             if (localPath) {
                 res.sendFile(filePath, { root: localPath }, e => {
                     if (!e) {
-                        // the file was found and successfully transfered
+                        // the file was found and successfully transferred
                         return;
                     }
                     console.error(`Could not transfer '${filePath}' file from '${pluginId}'`, e);

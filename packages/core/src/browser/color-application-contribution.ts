@@ -39,13 +39,19 @@ export class ColorApplicationContribution implements FrontendApplicationContribu
     @inject(ContributionProvider) @named(ColorContribution)
     protected readonly colorContributions: ContributionProvider<ColorContribution>;
 
+    private static themeBackgroundId = 'theme.background';
+
     onStart(): void {
         for (const contribution of this.colorContributions.getContributions()) {
             contribution.registerColors(this.colors);
         }
 
+        this.updateThemeBackground();
+        ThemeService.get().onThemeChange(() => this.updateThemeBackground());
+
         this.update();
         ThemeService.get().onThemeChange(() => this.update());
+        this.colors.onDidChange(() => this.update());
     }
 
     protected readonly toUpdate = new DisposableCollection();
@@ -61,15 +67,30 @@ export class ColorApplicationContribution implements FrontendApplicationContribu
         const documentElement = document.documentElement;
         if (documentElement) {
             for (const id of this.colors.getColors()) {
-                const color = this.colors.getCurrentColor(id);
-                if (color) {
-                    const propertyName = `--theia-${id.replace('.', '-')}`;
-                    documentElement.style.setProperty(propertyName, color);
-                    this.toUpdate.push(Disposable.create(() => documentElement.style.removeProperty(propertyName)));
+                const variable = this.colors.getCurrentCssVariable(id);
+                if (variable) {
+                    const { name, value } = variable;
+                    documentElement.style.setProperty(name, value);
+                    this.toUpdate.push(Disposable.create(() => documentElement.style.removeProperty(name)));
                 }
             }
         }
         this.onDidChangeEmitter.fire(undefined);
+    }
+
+    protected updateThemeBackground(): void {
+        const color = this.colors.getCurrentColor('editor.background');
+        if (color) {
+            window.localStorage.setItem(ColorApplicationContribution.themeBackgroundId, color);
+        } else {
+            window.localStorage.removeItem(ColorApplicationContribution.themeBackgroundId);
+        }
+    }
+
+    static initBackground(): void {
+        const value = window.localStorage.getItem(this.themeBackgroundId) || '#1d1d1d';
+        const documentElement = document.documentElement;
+        documentElement.style.setProperty('--theia-editor-background', value);
     }
 
 }

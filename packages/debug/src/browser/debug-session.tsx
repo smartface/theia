@@ -14,7 +14,7 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  ********************************************************************************/
 
-// tslint:disable:no-any
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 import * as React from 'react';
 import { LabelProvider } from '@theia/core/lib/browser';
@@ -28,15 +28,17 @@ import { DebugThread, StoppedDetails, DebugThreadData } from './model/debug-thre
 import { DebugScope } from './console/debug-console-items';
 import { DebugStackFrame } from './model/debug-stack-frame';
 import { DebugSource } from './model/debug-source';
-import { DebugBreakpoint, DebugBreakpointData } from './model/debug-breakpoint';
+import { DebugBreakpoint, DebugBreakpointOptions } from './model/debug-breakpoint';
+import { DebugSourceBreakpoint } from './model/debug-source-breakpoint';
 import debounce = require('p-debounce');
 import URI from '@theia/core/lib/common/uri';
 import { BreakpointManager } from './breakpoint/breakpoint-manager';
 import { DebugSessionOptions, InternalDebugSessionOptions } from './debug-session-options';
 import { DebugConfiguration } from '../common/debug-common';
-import { SourceBreakpoint } from './breakpoint/breakpoint-marker';
+import { SourceBreakpoint, ExceptionBreakpoint } from './breakpoint/breakpoint-marker';
 import { FileSystem } from '@theia/filesystem/lib/common';
 import { TerminalWidgetOptions, TerminalWidget } from '@theia/terminal/lib/browser/base/terminal-widget';
+import { DebugFunctionBreakpoint } from './model/debug-function-breakpoint';
 
 export enum DebugState {
     Inactive,
@@ -91,7 +93,10 @@ export class DebugSession implements CompositeTreeElement {
                 }
             }),
             this.on('stopped', async ({ body }) => {
+                // Update thread list
                 await this.updateThreads(body);
+
+                // Update current thread's frames immediately
                 await this.updateFrames();
             }),
             this.on('thread', ({ body: { reason, threadId } }) => {
@@ -219,6 +224,9 @@ export class DebugSession implements CompositeTreeElement {
         this.fireDidChange();
         if (thread) {
             this.toDisposeOnCurrentThread.push(thread.onDidChanged(() => this.fireDidChange()));
+
+            // If this thread is missing stack frame information, then load that.
+            this.updateFrames();
         }
     }
 
@@ -281,6 +289,14 @@ export class DebugSession implements CompositeTreeElement {
     }
     protected initialized = false;
     protected async configure(): Promise<void> {
+        if (this.capabilities.exceptionBreakpointFilters) {
+            const exceptionBreakpoints = [];
+            for (const filter of this.capabilities.exceptionBreakpointFilters) {
+                const origin = this.breakpoints.getExceptionBreakpoint(filter.filter);
+                exceptionBreakpoints.push(ExceptionBreakpoint.create(filter, origin));
+            }
+            this.breakpoints.setExceptionBreakpoints(exceptionBreakpoints);
+        }
         await this.updateBreakpoints({ sourceModified: false });
         if (this.capabilities.supportsConfigurationDoneRequest) {
             await this.sendRequest('configurationDone', {});
@@ -368,13 +384,21 @@ export class DebugSession implements CompositeTreeElement {
     }
 
     protected async runInTerminal({ arguments: { title, cwd, args, env } }: DebugProtocol.RunInTerminalRequest): Promise<DebugProtocol.RunInTerminalResponse['body']> {
-        const terminal = await this.doCreateTerminal({ title, cwd, env });
-        terminal.sendText(args.join(' ') + '\n');
-        return { processId: await terminal.processId };
+        const terminal = await this.doCreateTerminal({ title, cwd, env, useServerTitle: false });
+        const { processId } = terminal;
+        await terminal.executeCommand({ cwd, args, env });
+        return { processId: await processId };
     }
 
     protected async doCreateTerminal(options: TerminalWidgetOptions): Promise<TerminalWidget> {
-        let terminal = this.terminalServer.all.find(t => t.title.label === options.title || t.title.caption === options.title);
+        let terminal = undefined;
+        for (const t of this.terminalServer.all) {
+            if ((t.title.label === options.title || t.title.caption === options.title) && (await t.hasChildProcesses()) === false) {
+                terminal = t;
+                break;
+            }
+        }
+
         if (!terminal) {
             terminal = await this.terminalServer.newTerminal(options);
             await terminal.start();
@@ -448,7 +472,7 @@ export class DebugSession implements CompositeTreeElement {
 
     protected async updateFrames(): Promise<void> {
         const thread = this._currentThread;
-        if (!thread || thread.frameCount) {
+        if (!thread || thread.pendingFrameCount || thread.frameCount) {
             return;
         }
         if (this.capabilities.supportsDelayedStackTraceLoading) {
@@ -467,6 +491,27 @@ export class DebugSession implements CompositeTreeElement {
     get breakpointUris(): IterableIterator<string> {
         return this._breakpoints.keys();
     }
+
+    getSourceBreakpoints(uri?: URI): DebugSourceBreakpoint[] {
+        const breakpoints = [];
+        for (const breakpoint of this.getBreakpoints(uri)) {
+            if (breakpoint instanceof DebugSourceBreakpoint) {
+                breakpoints.push(breakpoint);
+            }
+        }
+        return breakpoints;
+    }
+
+    getFunctionBreakpoints(): DebugFunctionBreakpoint[] {
+        const breakpoints = [];
+        for (const breakpoint of this.getBreakpoints(BreakpointManager.FUNCTION_URI)) {
+            if (breakpoint instanceof DebugFunctionBreakpoint) {
+                breakpoints.push(breakpoint);
+            }
+        }
+        return breakpoints;
+    }
+
     getBreakpoints(uri?: URI): DebugBreakpoint[] {
         if (uri) {
             return this._breakpoints.get(uri.toString()) || [];
@@ -477,6 +522,7 @@ export class DebugSession implements CompositeTreeElement {
         }
         return result;
     }
+
     protected clearBreakpoints(): void {
         const uris = [...this._breakpoints.keys()];
         this._breakpoints.clear();
@@ -492,13 +538,13 @@ export class DebugSession implements CompositeTreeElement {
             if (body.reason === 'new') {
                 if (raw.source && typeof raw.line === 'number') {
                     const uri = DebugSource.toUri(raw.source);
-                    const origin = SourceBreakpoint.create(uri, { line: raw.line, column: 1 });
+                    const origin = SourceBreakpoint.create(uri, { line: raw.line, column: raw.column });
                     if (this.breakpoints.addBreakpoint(origin)) {
-                        const breakpoints = this.getBreakpoints(uri);
-                        const breakpoint = new DebugBreakpoint(origin, this.labelProvider, this.breakpoints, this.editorManager, this);
+                        const breakpoints = this.getSourceBreakpoints(uri);
+                        const breakpoint = new DebugSourceBreakpoint(origin, this.asDebugBreakpointOptions());
                         breakpoint.update({ raw });
                         breakpoints.push(breakpoint);
-                        this.setBreakpoints(uri, breakpoints);
+                        this.setSourceBreakpoints(uri, breakpoints);
                     }
                 }
             }
@@ -518,7 +564,14 @@ export class DebugSession implements CompositeTreeElement {
                 const toUpdate = this.findBreakpoint(b => b.idFromAdapter === raw.id);
                 if (toUpdate) {
                     toUpdate.update({ raw });
-                    this.fireDidChangeBreakpoints(toUpdate.uri);
+                    if (toUpdate instanceof DebugSourceBreakpoint) {
+                        const sourceBreakpoints = this.getSourceBreakpoints(toUpdate.uri);
+                        // in order to dedup again if a debugger converted line breakpoint to inline breakpoint
+                        // i.e. assigned a column to a line breakpoint
+                        this.setSourceBreakpoints(toUpdate.uri, sourceBreakpoints);
+                    } else {
+                        this.fireDidChangeBreakpoints(toUpdate.uri);
+                    }
                 }
             }
         } finally {
@@ -535,6 +588,7 @@ export class DebugSession implements CompositeTreeElement {
         }
         return undefined;
     }
+
     protected async updateBreakpoints(options: {
         uri?: URI,
         sourceModified: boolean
@@ -544,17 +598,35 @@ export class DebugSession implements CompositeTreeElement {
         }
         const { uri, sourceModified } = options;
         for (const affectedUri of this.getAffectedUris(uri)) {
-            const source = await this.toSource(affectedUri);
-            const all = this.breakpoints.findMarkers({ uri: affectedUri }).map(({ data }) =>
-                new DebugBreakpoint(data, this.labelProvider, this.breakpoints, this.editorManager, this)
-            );
-            const enabled = all.filter(b => b.enabled);
+            if (affectedUri.toString() === BreakpointManager.EXCEPTION_URI.toString()) {
+                await this.sendExceptionBreakpoints();
+            } else if (affectedUri.toString() === BreakpointManager.FUNCTION_URI.toString()) {
+                await this.sendFunctionBreakpoints(affectedUri);
+            } else {
+                await this.sendSourceBreakpoints(affectedUri, sourceModified);
+            }
+        }
+    }
 
+    protected async sendExceptionBreakpoints(): Promise<void> {
+        const filters = [];
+        for (const breakpoint of this.breakpoints.getExceptionBreakpoints()) {
+            if (breakpoint.enabled) {
+                filters.push(breakpoint.raw.filter);
+            }
+        }
+        await this.sendRequest('setExceptionBreakpoints', { filters });
+    }
+
+    protected async sendFunctionBreakpoints(affectedUri: URI): Promise<void> {
+        const all = this.breakpoints.getFunctionBreakpoints().map(origin =>
+            new DebugFunctionBreakpoint(origin, this.asDebugBreakpointOptions())
+        );
+        const enabled = all.filter(b => b.enabled);
+        if (this.capabilities.supportsFunctionBreakpoints) {
             try {
-                const response = await this.sendRequest('setBreakpoints', {
-                    source: source.raw,
-                    sourceModified,
-                    breakpoints: enabled.map(({ origin }) => origin.raw)
+                const response = await this.sendRequest('setFunctionBreakpoints', {
+                    breakpoints: enabled.map(b => b.origin.raw)
                 });
                 response.body.breakpoints.map((raw, index) => {
                     // node debug adapter returns more breakpoints sometimes
@@ -563,48 +635,87 @@ export class DebugSession implements CompositeTreeElement {
                     }
                 });
             } catch (error) {
-                // could be error or promise rejection of DebugProtocol.SetBreakpointsResponse
+                // could be error or promise rejection of DebugProtocol.SetFunctionBreakpoints
                 if (error instanceof Error) {
                     console.error(`Error setting breakpoints: ${error.message}`);
                 } else {
-                    // handle adapters that send failed DebugProtocol.SetBreakpointsResponse for invalid breakpoints
-                    const genericMessage: string = 'Breakpoint not valid for current debug session';
+                    // handle adapters that send failed DebugProtocol.SetFunctionBreakpoints for invalid breakpoints
+                    const genericMessage: string = 'Function breakpoint not valid for current debug session';
                     const message: string = error.message ? `${error.message}` : genericMessage;
-                    console.warn(`Could not handle breakpoints for ${affectedUri}: ${message}, disabling...`);
-                    enabled.forEach((brkPoint: DebugBreakpoint) => {
-                        const debugBreakpointData: Partial<DebugBreakpointData> = {
-                            raw: {
-                                verified: false,
-                                message
-                            }
-                        };
-                        brkPoint.update(debugBreakpointData);
-                    });
+                    console.warn(`Could not handle function breakpoints: ${message}, disabling...`);
+                    enabled.forEach(b => b.update({
+                        raw: {
+                            verified: false,
+                            message
+                        }
+                    }));
                 }
-            } finally {
-                this.setBreakpoints(affectedUri, all);
             }
         }
+        this.setBreakpoints(affectedUri, all);
     }
+
+    protected async sendSourceBreakpoints(affectedUri: URI, sourceModified?: boolean): Promise<void> {
+        const source = await this.toSource(affectedUri);
+        const all = this.breakpoints.findMarkers({ uri: affectedUri }).map(({ data }) =>
+            new DebugSourceBreakpoint(data, this.asDebugBreakpointOptions())
+        );
+        const enabled = all.filter(b => b.enabled);
+        try {
+            const response = await this.sendRequest('setBreakpoints', {
+                source: source.raw,
+                sourceModified,
+                breakpoints: enabled.map(({ origin }) => origin.raw)
+            });
+            response.body.breakpoints.map((raw, index) => {
+                // node debug adapter returns more breakpoints sometimes
+                if (enabled[index]) {
+                    enabled[index].update({ raw });
+                }
+            });
+        } catch (error) {
+            // could be error or promise rejection of DebugProtocol.SetBreakpointsResponse
+            if (error instanceof Error) {
+                console.error(`Error setting breakpoints: ${error.message}`);
+            } else {
+                // handle adapters that send failed DebugProtocol.SetBreakpointsResponse for invalid breakpoints
+                const genericMessage: string = 'Breakpoint not valid for current debug session';
+                const message: string = error.message ? `${error.message}` : genericMessage;
+                console.warn(`Could not handle breakpoints for ${affectedUri}: ${message}, disabling...`);
+                enabled.forEach(b => b.update({
+                    raw: {
+                        verified: false,
+                        message
+                    }
+                }));
+            }
+        }
+        this.setSourceBreakpoints(affectedUri, all);
+    }
+
     protected setBreakpoints(uri: URI, breakpoints: DebugBreakpoint[]): void {
-        const distinct = this.dedupBreakpoints(breakpoints);
-        this._breakpoints.set(uri.toString(), distinct);
+        this._breakpoints.set(uri.toString(), breakpoints);
         this.fireDidChangeBreakpoints(uri);
     }
-    protected dedupBreakpoints(all: DebugBreakpoint[]): DebugBreakpoint[] {
-        const lines = new Map<number, DebugBreakpoint>();
+
+    protected setSourceBreakpoints(uri: URI, breakpoints: DebugSourceBreakpoint[]): void {
+        const distinct = this.dedupSourceBreakpoints(breakpoints);
+        this.setBreakpoints(uri, distinct);
+    }
+    protected dedupSourceBreakpoints(all: DebugSourceBreakpoint[]): DebugSourceBreakpoint[] {
+        const positions = new Map<string, DebugSourceBreakpoint>();
         for (const breakpoint of all) {
-            let primary = lines.get(breakpoint.line) || breakpoint;
+            let primary = positions.get(breakpoint.renderPosition()) || breakpoint;
             if (primary !== breakpoint) {
                 let secondary = breakpoint;
-                if (secondary.raw && secondary.raw.line === secondary.origin.raw.line) {
+                if (secondary.raw && secondary.raw.line === secondary.origin.raw.line && secondary.raw.column === secondary.origin.raw.column) {
                     [primary, secondary] = [breakpoint, primary];
                 }
                 primary.origins.push(...secondary.origins);
             }
-            lines.set(primary.line, primary);
+            positions.set(primary.renderPosition(), primary);
         }
-        return [...lines.values()];
+        return [...positions.values()];
     }
     protected *getAffectedUris(uri?: URI): IterableIterator<URI> {
         if (uri) {
@@ -613,7 +724,14 @@ export class DebugSession implements CompositeTreeElement {
             for (const uriString of this.breakpoints.getUris()) {
                 yield new URI(uriString);
             }
+            yield BreakpointManager.FUNCTION_URI;
+            yield BreakpointManager.EXCEPTION_URI;
         }
+    }
+
+    protected asDebugBreakpointOptions(): DebugBreakpointOptions {
+        const { labelProvider, breakpoints, editorManager } = this;
+        return { labelProvider, breakpoints, editorManager, session: this };
     }
 
     get label(): string {

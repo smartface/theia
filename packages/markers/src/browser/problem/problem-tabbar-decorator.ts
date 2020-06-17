@@ -110,7 +110,7 @@ export class ProblemTabBarDecorator implements TabBarDecorator {
                 color,
                 background: {
                     shape: 'circle',
-                    color: 'var(--theia-layout-color0)'
+                    color: 'transparent'
                 }
             }
         };
@@ -139,10 +139,10 @@ export class ProblemTabBarDecorator implements TabBarDecorator {
     protected getOverlayIconColor(marker: Marker<Diagnostic>): WidgetDecoration.Color {
         const { severity } = marker.data;
         switch (severity) {
-            case 1: return 'var(--theia-error-color0)';
-            case 2: return 'var(--theia-warn-color0)';
-            case 3: return 'var(--theia-info-color0)';
-            default: return 'var(--theia-success-color0)';
+            case 1: return 'var(--theia-editorError-foreground)';
+            case 2: return 'var(--theia-editorWarning-foreground)';
+            case 3: return 'var(--theia-editorInfo-foreground)';
+            default: return 'var(--theia-successBackground)';
         }
     }
 

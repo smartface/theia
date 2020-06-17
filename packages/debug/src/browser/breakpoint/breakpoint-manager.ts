@@ -15,22 +15,28 @@
  ********************************************************************************/
 
 import { injectable, inject } from 'inversify';
-import { Emitter, Event } from '@theia/core/lib/common';
+import { Emitter } from '@theia/core/lib/common';
 import { StorageService } from '@theia/core/lib/browser';
 import { Marker } from '@theia/markers/lib/common/marker';
 import { MarkerManager } from '@theia/markers/lib/browser/marker-manager';
 import URI from '@theia/core/lib/common/uri';
-import { SourceBreakpoint, BREAKPOINT_KIND } from './breakpoint-marker';
+import { SourceBreakpoint, BREAKPOINT_KIND, ExceptionBreakpoint, FunctionBreakpoint, BaseBreakpoint } from './breakpoint-marker';
 
-export interface BreakpointsChangeEvent {
+export interface BreakpointsChangeEvent<T extends BaseBreakpoint> {
     uri: URI
-    added: SourceBreakpoint[]
-    removed: SourceBreakpoint[]
-    changed: SourceBreakpoint[]
+    added: T[]
+    removed: T[]
+    changed: T[]
 }
+export type SourceBreakpointsChangeEvent = BreakpointsChangeEvent<SourceBreakpoint>;
+export type FunctionBreakpointsChangeEvent = BreakpointsChangeEvent<FunctionBreakpoint>;
 
 @injectable()
 export class BreakpointManager extends MarkerManager<SourceBreakpoint> {
+
+    static EXCEPTION_URI = new URI('debug:exception://');
+
+    static FUNCTION_URI = new URI('debug:function://');
 
     protected readonly owner = 'breakpoint';
 
@@ -41,8 +47,11 @@ export class BreakpointManager extends MarkerManager<SourceBreakpoint> {
         return BREAKPOINT_KIND;
     }
 
-    protected readonly onDidChangeBreakpointsEmitter = new Emitter<BreakpointsChangeEvent>();
-    readonly onDidChangeBreakpoints: Event<BreakpointsChangeEvent> = this.onDidChangeBreakpointsEmitter.event;
+    protected readonly onDidChangeBreakpointsEmitter = new Emitter<SourceBreakpointsChangeEvent>();
+    readonly onDidChangeBreakpoints = this.onDidChangeBreakpointsEmitter.event;
+
+    protected readonly onDidChangeFunctionBreakpointsEmitter = new Emitter<FunctionBreakpointsChangeEvent>();
+    readonly onDidChangeFunctionBreakpoints = this.onDidChangeFunctionBreakpointsEmitter.event;
 
     setMarkers(uri: URI, owner: string, newMarkers: SourceBreakpoint[]): Marker<SourceBreakpoint>[] {
         const result = super.setMarkers(uri, owner, newMarkers);
@@ -68,10 +77,17 @@ export class BreakpointManager extends MarkerManager<SourceBreakpoint> {
         return result;
     }
 
-    getBreakpoint(uri: URI, line: number): SourceBreakpoint | undefined {
-        const marker = this.findMarkers({
+    getLineBreakpoints(uri: URI, line: number): SourceBreakpoint[] {
+        return this.findMarkers({
             uri,
             dataFilter: breakpoint => breakpoint.raw.line === line
+        }).map(({ data }) => data);
+    }
+
+    getInlineBreakpoint(uri: URI, line: number, column: number): SourceBreakpoint | undefined {
+        const marker = this.findMarkers({
+            uri,
+            dataFilter: breakpoint => breakpoint.raw.line === line && breakpoint.raw.column === column
         })[0];
         return marker && marker.data;
     }
@@ -81,13 +97,13 @@ export class BreakpointManager extends MarkerManager<SourceBreakpoint> {
     }
 
     setBreakpoints(uri: URI, breakpoints: SourceBreakpoint[]): void {
-        this.setMarkers(uri, this.owner, breakpoints.sort((a, b) => a.raw.line - b.raw.line));
+        this.setMarkers(uri, this.owner, breakpoints.sort((a, b) => (a.raw.line - b.raw.line) || ((a.raw.column || 0) - (b.raw.column || 0))));
     }
 
     addBreakpoint(breakpoint: SourceBreakpoint): boolean {
         const uri = new URI(breakpoint.uri);
         const breakpoints = this.getBreakpoints(uri);
-        const newBreakpoints = breakpoints.filter(({ raw }) => raw.line !== breakpoint.raw.line);
+        const newBreakpoints = breakpoints.filter(({ raw }) => !(raw.line === breakpoint.raw.line && raw.column === breakpoint.raw.column));
         if (breakpoints.length === newBreakpoints.length) {
             newBreakpoints.push(breakpoint);
             this.setBreakpoints(uri, newBreakpoints);
@@ -111,6 +127,17 @@ export class BreakpointManager extends MarkerManager<SourceBreakpoint> {
                 this.fireOnDidChangeMarkers(uri);
             }
         }
+        let didChangeFunction = false;
+        for (const breakpoint of this.getFunctionBreakpoints()) {
+            if (breakpoint.enabled !== enabled) {
+                breakpoint.enabled = enabled;
+                didChangeFunction = true;
+
+            }
+        }
+        if (didChangeFunction) {
+            this.fireOnDidChangeMarkers(BreakpointManager.FUNCTION_URI);
+        }
     }
 
     protected _breakpointsEnabled = true;
@@ -123,7 +150,82 @@ export class BreakpointManager extends MarkerManager<SourceBreakpoint> {
             for (const uri of this.getUris()) {
                 this.fireOnDidChangeMarkers(new URI(uri));
             }
+            this.fireOnDidChangeMarkers(BreakpointManager.FUNCTION_URI);
         }
+    }
+
+    protected readonly exceptionBreakpoints = new Map<string, ExceptionBreakpoint>();
+
+    getExceptionBreakpoint(filter: string): ExceptionBreakpoint | undefined {
+        return this.exceptionBreakpoints.get(filter);
+    }
+
+    getExceptionBreakpoints(): IterableIterator<ExceptionBreakpoint> {
+        return this.exceptionBreakpoints.values();
+    }
+
+    setExceptionBreakpoints(exceptionBreakpoints: ExceptionBreakpoint[]): void {
+        const toRemove = new Set(this.exceptionBreakpoints.keys());
+        for (const exceptionBreakpoint of exceptionBreakpoints) {
+            const filter = exceptionBreakpoint.raw.filter;
+            toRemove.delete(filter);
+            this.exceptionBreakpoints.set(filter, exceptionBreakpoint);
+        }
+        for (const filter of toRemove) {
+            this.exceptionBreakpoints.delete(filter);
+        }
+        if (toRemove.size || exceptionBreakpoints.length) {
+            this.fireOnDidChangeMarkers(BreakpointManager.EXCEPTION_URI);
+        }
+    }
+
+    toggleExceptionBreakpoint(filter: string): void {
+        const breakpoint = this.getExceptionBreakpoint(filter);
+        if (breakpoint) {
+            breakpoint.enabled = !breakpoint.enabled;
+            this.fireOnDidChangeMarkers(BreakpointManager.EXCEPTION_URI);
+        }
+    }
+
+    protected functionBreakpoints: FunctionBreakpoint[] = [];
+
+    getFunctionBreakpoints(): FunctionBreakpoint[] {
+        return this.functionBreakpoints;
+    }
+
+    setFunctionBreakpoints(functionBreakpoints: FunctionBreakpoint[]): void {
+        const oldBreakpoints = new Map(this.functionBreakpoints.map(b => [b.id, b] as [string, FunctionBreakpoint]));
+
+        this.functionBreakpoints = functionBreakpoints;
+        this.fireOnDidChangeMarkers(BreakpointManager.FUNCTION_URI);
+
+        const added: FunctionBreakpoint[] = [];
+        const removed: FunctionBreakpoint[] = [];
+        const changed: FunctionBreakpoint[] = [];
+        const ids = new Set<string>();
+        for (const newBreakpoint of functionBreakpoints) {
+            ids.add(newBreakpoint.id);
+            if (oldBreakpoints.has(newBreakpoint.id)) {
+                changed.push(newBreakpoint);
+            } else {
+                added.push(newBreakpoint);
+            }
+        }
+        for (const [id, breakpoint] of oldBreakpoints.entries()) {
+            if (!ids.has(id)) {
+                removed.push(breakpoint);
+            }
+        }
+        this.onDidChangeFunctionBreakpointsEmitter.fire({ uri: BreakpointManager.FUNCTION_URI, added, removed, changed });
+    }
+
+    hasBreakpoints(): boolean {
+        return !!this.getUris().next().value || !!this.functionBreakpoints.length;
+    }
+
+    removeBreakpoints(): void {
+        this.cleanAllMarkers();
+        this.setFunctionBreakpoints([]);
     }
 
     async load(): Promise<void> {
@@ -132,9 +234,15 @@ export class BreakpointManager extends MarkerManager<SourceBreakpoint> {
             breakpoints: {}
         });
         this._breakpointsEnabled = data.breakpointsEnabled;
-        // tslint:disable-next-line:forin
+        // eslint-disable-next-line guard-for-in
         for (const uri in data.breakpoints) {
             this.setBreakpoints(new URI(uri), data.breakpoints[uri]);
+        }
+        if (data.functionBreakpoints) {
+            this.setFunctionBreakpoints(data.functionBreakpoints);
+        }
+        if (data.exceptionBreakpoints) {
+            this.setExceptionBreakpoints(data.exceptionBreakpoints);
         }
     }
 
@@ -147,6 +255,12 @@ export class BreakpointManager extends MarkerManager<SourceBreakpoint> {
         for (const uri of uris) {
             data.breakpoints[uri] = this.findMarkers({ uri: new URI(uri) }).map(marker => marker.data);
         }
+        if (this.functionBreakpoints.length) {
+            data.functionBreakpoints = this.functionBreakpoints;
+        }
+        if (this.exceptionBreakpoints.size) {
+            data.exceptionBreakpoints = [...this.exceptionBreakpoints.values()];
+        }
         this.storage.setData('breakpoints', data);
     }
 
@@ -157,5 +271,7 @@ export namespace BreakpointManager {
         breakpoints: {
             [uri: string]: SourceBreakpoint[]
         }
+        exceptionBreakpoints?: ExceptionBreakpoint[]
+        functionBreakpoints?: FunctionBreakpoint[]
     }
 }

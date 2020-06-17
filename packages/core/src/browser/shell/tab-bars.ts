@@ -27,6 +27,7 @@ import { TabBarToolbarRegistry, TabBarToolbar } from './tab-bar-toolbar';
 import { TheiaDockPanel, MAIN_AREA_ID, BOTTOM_AREA_ID } from './theia-dock-panel';
 import { WidgetDecoration } from '../widget-decoration';
 import { TabBarDecoratorService } from './tab-bar-decorator';
+import { IconThemeService } from '../icon-theme-service';
 
 /** The class name added to hidden content nodes, which are required to render vertical side bars. */
 const HIDDEN_CONTENT_CLASS = 'theia-TabBar-hidden-content';
@@ -72,10 +73,11 @@ export class TabBarRenderer extends TabBar.Renderer {
 
     // TODO refactor shell, rendered should only receive props with event handlers
     // events should be handled by clients, like ApplicationShell
-    // right now it is mess: (1) client logic belong to renderer, (2) cyclic dependencies between renderes and clients
+    // right now it is mess: (1) client logic belong to renderer, (2) cyclic dependencies between renderers and clients
     constructor(
         protected readonly contextMenuRenderer?: ContextMenuRenderer,
-        protected readonly decoratorService?: TabBarDecoratorService
+        protected readonly decoratorService?: TabBarDecoratorService,
+        protected readonly iconThemeService?: IconThemeService
     ) {
         super();
         if (this.decoratorService) {
@@ -83,6 +85,17 @@ export class TabBarRenderer extends TabBar.Renderer {
             this.toDispose.push(this.decoratorService);
             this.toDispose.push(this.decoratorService.onDidChangeDecorations(() => this.resetDecorations()));
         }
+        if (this.iconThemeService) {
+            this.toDispose.push(this.iconThemeService.onDidChangeCurrent(() => {
+                if (this._tabBar) {
+                    this._tabBar.update();
+                }
+            }));
+        }
+    }
+
+    dispose(): void {
+        this.toDispose.dispose();
     }
 
     protected _tabBar?: TabBar<Widget>;
@@ -92,6 +105,9 @@ export class TabBarRenderer extends TabBar.Renderer {
      * is requested.
      */
     set tabBar(tabBar: TabBar<Widget> | undefined) {
+        if (this.toDispose.disposed) {
+            throw new Error('disposed');
+        }
         if (this._tabBar === tabBar) {
             return;
         }
@@ -126,10 +142,17 @@ export class TabBarRenderer extends TabBar.Renderer {
             {
                 key, className, id, title: title.caption, style, dataset,
                 oncontextmenu: this.handleContextMenuEvent,
-                ondblclick: this.handleDblClickEvent
+                ondblclick: this.handleDblClickEvent,
+                onauxclick: (e: MouseEvent) => {
+                    // If user closes the tab using mouse wheel, nothing should be pasted to an active editor
+                    e.preventDefault();
+                }
             },
-            this.renderIcon(data, isInSidePanel),
-            this.renderLabel(data, isInSidePanel),
+            h.div(
+                { className: 'theia-tab-icon-label' },
+                this.renderIcon(data, isInSidePanel),
+                this.renderLabel(data, isInSidePanel)
+            ),
             this.renderCloseIcon(data)
         );
     }
@@ -222,7 +245,7 @@ export class TabBarRenderer extends TabBar.Renderer {
      */
     protected getDecorations(title: Title<Widget>): WidgetDecoration.Data[] {
         if (this.tabBar && this.decoratorService) {
-            // tslint:disable-next-line:no-any
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const owner: { resetTabBarDecorations?: () => void; } & Widget = title.owner;
             if (!owner.resetTabBarDecorations) {
                 owner.resetTabBarDecorations = () => this.decorations.delete(title);
@@ -348,6 +371,9 @@ export class TabBarRenderer extends TabBar.Renderer {
      * @param {boolean} isInSidePanel An optional check which determines if the tab is in the side-panel.
      */
     renderIcon(data: SideBarRenderData, inSidePanel?: boolean): VirtualElement {
+        if (!inSidePanel && this.iconThemeService && this.iconThemeService.current === 'none') {
+            return h.div();
+        }
         let top: string | undefined;
         if (data.paddingTop) {
             top = `${data.paddingTop || 0}px`;
@@ -401,7 +427,7 @@ export class TabBarRenderer extends TabBar.Renderer {
 
             if (this.tabBar) {
                 const id = event.currentTarget.id;
-                // tslint:disable-next-line:no-null-keyword
+                // eslint-disable-next-line no-null/no-null
                 const title = this.tabBar.titles.find(t => this.createTabId(t) === id) || null;
                 this.tabBar.currentTitle = title;
                 this.tabBar.activate();
@@ -412,19 +438,19 @@ export class TabBarRenderer extends TabBar.Renderer {
 
             this.contextMenuRenderer.render(this.contextMenuPath, event);
         }
-    }
+    };
 
     protected handleDblClickEvent = (event: MouseEvent) => {
         if (this.tabBar && event.currentTarget instanceof HTMLElement) {
             const id = event.currentTarget.id;
-            // tslint:disable-next-line:no-null-keyword
+            // eslint-disable-next-line no-null/no-null
             const title = this.tabBar.titles.find(t => this.createTabId(t) === id) || null;
             const area = title && title.owner.parent;
             if (area instanceof TheiaDockPanel && (area.id === BOTTOM_AREA_ID || area.id === MAIN_AREA_ID)) {
                 area.toggleMaximized();
             }
         }
-    }
+    };
 
 }
 
@@ -438,9 +464,19 @@ export class ScrollableTabBar extends TabBar<Widget> {
     private scrollBarFactory: () => PerfectScrollbar;
     private pendingReveal?: Promise<void>;
 
+    protected readonly toDispose = new DisposableCollection();
+
     constructor(options?: TabBar.IOptions<Widget> & PerfectScrollbar.Options) {
         super(options);
         this.scrollBarFactory = () => new PerfectScrollbar(this.scrollbarHost, options);
+    }
+
+    dispose(): void {
+        if (this.isDisposed) {
+            return;
+        }
+        super.dispose();
+        this.toDispose.dispose();
     }
 
     protected onAfterAttach(msg: Message): void {
@@ -556,7 +592,7 @@ export class ToolbarAwareTabBar extends ScrollableTabBar {
 
         super(options);
         this.rewireDOM();
-        this.tabBarToolbarRegistry.onDidChange(() => this.update());
+        this.toDispose.push(this.tabBarToolbarRegistry.onDidChange(() => this.update()));
     }
 
     /**

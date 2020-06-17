@@ -31,7 +31,7 @@ let previewHandler: MarkdownPreviewHandler;
 
 before(() => {
     previewHandler = new MarkdownPreviewHandler();
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (previewHandler as any).linkNormalizer = {
         normalizeLink: (documentUri: URI, link: string) =>
             'endpoint/' + documentUri.parent.resolve(link).path.toString().substr(1)
@@ -104,6 +104,14 @@ describe('markdown-preview-handler', () => {
             const line = previewHandler.getSourceLineForOffset(document.body, offset);
             expect(line).to.be.equal(expectedLine);
         }
+    });
+
+    it('can handle \'.md\' files', () => {
+        expect(previewHandler.canHandle(new URI('a.md'))).greaterThan(0);
+    });
+
+    it('can handle \'.markdown\' files', () => {
+        expect(previewHandler.canHandle(new URI('a.markdown'))).greaterThan(0);
     });
 });
 
@@ -194,7 +202,7 @@ function mockOffsetProperties(): void {
             get: () => 0
         },
         offsetTop: {
-            // tslint:disable-next-line:no-any
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             get: function (): any {
                 const element = this as HTMLElement;
                 const line = Number.parseInt(element.getAttribute('data-line') || '0');

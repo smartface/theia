@@ -54,6 +54,11 @@ export const TerminalConfigSchema: PreferenceSchema = {
             description: 'The font weight to use within the terminal for bold text.',
             default: 'bold'
         },
+        'terminal.integrated.drawBoldTextInBrightColors': {
+            description: 'Controls whether to draw bold text in bright colors.',
+            type: 'boolean',
+            default: true,
+        },
         'terminal.integrated.letterSpacing': {
             description: 'Controls the letter spacing of the terminal, this is an integer value which represents the amount of additional pixels to add between characters.',
             type: 'number',
@@ -70,6 +75,11 @@ export const TerminalConfigSchema: PreferenceSchema = {
             type: 'number',
             default: 1000
         },
+        'terminal.integrated.fastScrollSensitivity': {
+            description: 'Controls the scrolling speed when pressing \'alt\'.',
+            type: 'number',
+            default: 5,
+        },
         'terminal.integrated.rendererType': {
             description: 'Controls how the terminal is rendered.',
             type: 'string',
@@ -80,7 +90,61 @@ export const TerminalConfigSchema: PreferenceSchema = {
             description: 'Controls whether text selected in the terminal will be copied to the clipboard.',
             type: 'boolean',
             default: false,
-        }
+        },
+        'terminal.integrated.cursorBlinking': {
+            description: 'Controls whether the terminal cursor blinks.',
+            type: 'boolean',
+            default: false
+        },
+        'terminal.integrated.cursorStyle': {
+            description: 'Controls the style of the terminal cursor.',
+            enum: ['block', 'underline', 'line'],
+            default: 'block'
+        },
+        'terminal.integrated.cursorWidth': {
+            description: 'Controls the width of the cursor when \'terminal.integrated.cursorStyle\' is set to \'line\'.',
+            markdownDescription: 'Controls the width of the cursor when `#terminal.integrated.cursorStyle#` is set to `line`.',
+            type: 'number',
+            default: 1
+        },
+        'terminal.integrated.shell.windows': {
+            type: ['string', 'null'],
+            description: 'The path of the shell that the terminal uses on Windows. (default: C:\\Windows\\System32\\cmd.exe).',
+            markdownDescription: 'The path of the shell that the terminal uses on Windows. (default: C:\\Windows\\System32\\cmd.exe).',
+            default: undefined
+        },
+        'terminal.integrated.shell.osx': {
+            type: ['string', 'null'],
+            description: `The path of the shell that the terminal uses on macOS (default: ${process.env.SHELL || '/bin/bash'}).`,
+            markdownDescription: `The path of the shell that the terminal uses on macOS (default: ${process.env.SHELL || '/bin/bash'}).`,
+            default: undefined
+        },
+        'terminal.integrated.shell.linux': {
+            type: ['string', 'null'],
+            description: `The path of the shell that the terminal uses on Linux (default: ${process.env.SHELL || '/bin/bash'}).`,
+            markdownDescription: `The path of the shell that the terminal uses on Linux (default: ${process.env.SHELL || '/bin/bash'}).`,
+            default: undefined
+        },
+        'terminal.integrated.shellArgs.windows': {
+            type: 'array',
+            description: 'The command line arguments to use when on the Windows terminal.',
+            markdownDescription: 'The command line arguments to use when on the Windows terminal.',
+            default: []
+        },
+        'terminal.integrated.shellArgs.osx': {
+            type: 'array',
+            description: 'The command line arguments to use when on the macOS terminal.',
+            markdownDescription: 'The command line arguments to use when on the macOS terminal.',
+            default: [
+                '-l'
+            ]
+        },
+        'terminal.integrated.shellArgs.linux': {
+            type: 'array',
+            description: 'The command line arguments to use when on the Linux terminal.',
+            markdownDescription: 'The command line arguments to use when on the Linux terminal.',
+            default: []
+        },
     }
 };
 
@@ -90,19 +154,32 @@ export interface TerminalConfiguration {
     'terminal.integrated.fontFamily': string
     'terminal.integrated.fontSize': number
     'terminal.integrated.fontWeight': FontWeight
-    'terminal.integrated.fontWeightBold': FontWeight
+    'terminal.integrated.fontWeightBold': FontWeight,
+    'terminal.integrated.drawBoldTextInBrightColors': boolean,
     'terminal.integrated.letterSpacing': number
     'terminal.integrated.lineHeight': number,
     'terminal.integrated.scrollback': number,
+    'terminal.integrated.fastScrollSensitivity': number,
     'terminal.integrated.rendererType': TerminalRendererType,
     'terminal.integrated.copyOnSelection': boolean,
+    'terminal.integrated.cursorBlinking': boolean,
+    'terminal.integrated.cursorStyle': CursorStyleVSCode,
+    'terminal.integrated.cursorWidth': number,
+    'terminal.integrated.shell.windows': string | undefined,
+    'terminal.integrated.shell.osx': string | undefined,
+    'terminal.integrated.shell.linux': string | undefined,
+    'terminal.integrated.shellArgs.windows': string[],
+    'terminal.integrated.shellArgs.osx': string[],
+    'terminal.integrated.shellArgs.linux': string[],
 }
 
 type FontWeight = 'normal' | 'bold' | '100' | '200' | '300' | '400' | '500' | '600' | '700' | '800' | '900';
-
+export type CursorStyle = 'block' | 'underline' | 'bar';
+// VS Code uses 'line' to represent 'bar'. The following conversion is necessary to support their preferences.
+export type CursorStyleVSCode = CursorStyle | 'line';
 export type TerminalRendererType = 'canvas' | 'dom';
 export const DEFAULT_TERMINAL_RENDERER_TYPE = 'canvas';
-// tslint:disable-next-line:no-any
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function isTerminalRendererType(arg: any): arg is TerminalRendererType {
     return typeof arg === 'string' && (arg === 'canvas' || arg === 'dom');
 }

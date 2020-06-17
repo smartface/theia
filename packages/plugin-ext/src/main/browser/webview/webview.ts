@@ -38,7 +38,6 @@ import { open, OpenerService } from '@theia/core/lib/browser/opener-service';
 import { KeybindingRegistry } from '@theia/core/lib/browser/keybinding';
 import { Schemes } from '../../../common/uri-components';
 import { PluginSharedStyle } from '../plugin-shared-style';
-import { BuiltinThemeProvider } from '@theia/core/lib/browser/theming';
 import { WebviewThemeDataProvider } from './webview-theme-data-provider';
 import { ExternalUriService } from '@theia/core/lib/browser/external-uri-service';
 import { OutputChannelManager } from '@theia/output/lib/common/output-channel';
@@ -50,7 +49,7 @@ import { Endpoint } from '@theia/core/lib/browser/endpoint';
 // Style from core
 const TRANSPARENT_OVERLAY_STYLE = 'theia-transparent-overlay';
 
-// tslint:disable:no-any
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 export const enum WebviewMessageChannels {
     onmessage = 'onmessage',
@@ -93,7 +92,7 @@ export class WebviewWidget extends BaseWidget implements StatefulWidget {
 
     protected element: HTMLIFrameElement | undefined;
 
-    // tslint:disable-next-line:max-line-length
+    // eslint-disable-next-line max-len
     // XXX This is a hack to be able to tack the mouse events when drag and dropping the widgets.
     // On `mousedown` we put a transparent div over the `iframe` to avoid losing the mouse tacking.
     protected transparentOverlay: HTMLElement;
@@ -281,7 +280,7 @@ export class WebviewWidget extends BaseWidget implements StatefulWidget {
             // Electron: workaround for https://github.com/electron/electron/issues/14258
             // We have to detect keyboard events in the <webview> and dispatch them to our
             // keybinding service because these events do not bubble to the parent window anymore.
-            this.dispatchKeyDown(data);
+            this.keybindings.dispatchKeyDown(data, this.element);
         }));
 
         this.style();
@@ -352,7 +351,7 @@ export class WebviewWidget extends BaseWidget implements StatefulWidget {
             const iconClass = `webview-${this.identifier.id}-file-icon`;
             this.toDisposeOnIcon.push(this.sharedStyle.insertRule(
                 `.theia-webview-icon.${iconClass}::before`,
-                theme => `background-image: url(${theme.id === BuiltinThemeProvider.lightTheme.id ? lightIconUrl : darkIconUrl});`
+                theme => `background-image: url(${theme.type === 'light' ? lightIconUrl : darkIconUrl});`
             ));
             this.title.iconClass = `theia-webview-icon ${iconClass}`;
         } else {
@@ -396,17 +395,6 @@ export class WebviewWidget extends BaseWidget implements StatefulWidget {
         this.doSend('styles', { styles, activeTheme });
     }
 
-    protected dispatchKeyDown(event: KeyboardEventInit): void {
-        // Create a fake KeyboardEvent from the data provided
-        const emulatedKeyboardEvent = new KeyboardEvent('keydown', event);
-        // Force override the target
-        Object.defineProperty(emulatedKeyboardEvent, 'target', {
-            get: () => this.element,
-        });
-        // And re-dispatch
-        this.keybindings.run(emulatedKeyboardEvent);
-    }
-
     protected openLink(link: URI): void {
         const supported = this.toSupportedLink(link);
         if (supported) {
@@ -432,7 +420,7 @@ export class WebviewWidget extends BaseWidget implements StatefulWidget {
 
     protected async loadResource(requestPath: string): Promise<void> {
         const normalizedUri = this.normalizeRequestUri(requestPath);
-        // browser cache does not suppot file scheme, normalize to current endpoint scheme and host
+        // browser cache does not support file scheme, normalize to current endpoint scheme and host
         const cacheUrl = new Endpoint({ path: normalizedUri.path.toString() }).getRestUrl().toString();
 
         try {

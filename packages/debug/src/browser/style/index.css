@@ -19,7 +19,6 @@
     display: flex;
     flex-direction: column;
     height: 100%;
-    color: var(--theia-ui-font-color1);
 }
 
 .theia-side-panel .theia-debug-container .theia-ExpansionToggle {
@@ -54,7 +53,7 @@
 
 .theia-source-breakpoint .path {
     font-size: var(--theia-ui-font-size0);
-    color: var(--theia-ui-font-color2);
+    color: var(--theia-descriptionForeground);
 }
 
 .theia-source-breakpoint .line-info {
@@ -66,8 +65,8 @@
 
 .theia-source-breakpoint .line,
 .theia-debug-stack-frame .line {
-    background: var(--theia-ui-font-color2);
-    color: var(--theia-inverse-ui-font-color0);
+    background: var(--theia-descriptionForeground);
+    color: var(--theia-editor-background);
     padding: calc(var(--theia-ui-padding)/3);
     font-size: var(--theia-ui-font-size0);
     line-height: calc(var(--theia-private-horizontal-tab-height)/2);
@@ -124,7 +123,7 @@
 .theia-session-container > .debug-toolbar {
     padding-top: var(--theia-ui-padding);
     padding-bottom: var(--theia-ui-padding);
-    border-bottom: 1px solid var(--theia-layout-color0);
+    border-bottom: 1px solid var(--theia-sideBarSectionHeader-border);
 }
 
 .debug-toolbar .debug-configuration {
@@ -138,8 +137,8 @@
     pointer-events: all;
     padding-left: var(--theia-ui-padding);
     padding-right: var(--theia-ui-padding);
-    min-width: 16px;
-    min-height: 16px;
+    min-width: var(--theia-icon-size);
+    min-height: var(--theia-icon-size);
 }
 
 .debug-toolbar .debug-action:not(:focus) {
@@ -214,50 +213,81 @@
     margin-left: 0px !important;
 }
 
-.theia-debug-breakpoint {
+.monaco-editor .theia-debug-breakpoint-column::before,
+.monaco-editor .theia-debug-top-stack-frame-column::before {
+	content: ' ';
+	width: 1.3em;
+	height: 1.3em;
+	display: inline-block;
+	vertical-align: text-bottom;
+}
+
+.monaco-editor .theia-debug-top-stack-frame-column {
+	background: url('current-arrow.svg') center center no-repeat;
+}
+
+.theia-debug-breakpoint,
+.monaco-editor .theia-debug-breakpoint-column.theia-debug-breakpoint-column {
 	background: url('breakpoint.svg') center center no-repeat;
 }
-.theia-debug-breakpoint-disabled {
+.theia-debug-breakpoint-disabled,
+.monaco-editor .theia-debug-breakpoint-column.theia-debug-breakpoint-disabled-column {
     background: url('breakpoint-disabled.svg') center center no-repeat;
 }
-.theia-debug-breakpoint-unverified {
+.theia-debug-breakpoint-unverified,
+.monaco-editor .theia-debug-breakpoint-column.theia-debug-breakpoint-unverified-column {
     background: url('breakpoint-unverified.svg') center center no-repeat;
 }
-.theia-debug-breakpoint-unsupported {
+.theia-debug-breakpoint-unsupported,
+.monaco-editor .theia-debug-breakpoint-column.theia-debug-breakpoint-unsupported-column {
     background: url('breakpoint-unsupported.svg') center center no-repeat;
 }
 
-.theia-debug-conditional-breakpoint {
+.theia-debug-conditional-breakpoint,
+.monaco-editor .theia-debug-breakpoint-column.theia-debug-conditional-breakpoint-column {
     background: url('breakpoint-conditional.svg') center center no-repeat;
 }
-.theia-debug-conditional-breakpoint-disabled {
+.theia-debug-conditional-breakpoint-disabled,
+.monaco-editor .theia-debug-breakpoint-column.theia-debug-conditional-breakpoint-disabled-column {
     background: url('breakpoint-conditional-disabled.svg') center center no-repeat;
 }
-.theia-debug-conditional-breakpoint-unverified {
+.theia-debug-conditional-breakpoint-unverified,
+.monaco-editor .theia-debug-breakpoint-column.theia-debug-conditional-breakpoint-unverified-column {
     background: url('breakpoint-conditional-unverified.svg') center center no-repeat;
 }
 
-.theia-debug-logpoint {
+.theia-debug-logpoint,
+.monaco-editor .theia-debug-breakpoint-column.theia-debug-logpoint-column {
 	background: url('breakpoint-log.svg') center center no-repeat;
 }
-.theia-debug-logpoint-disabled {
+.theia-debug-logpoint-disabled,
+.monaco-editor .theia-debug-breakpoint-column.theia-debug-logpoint-disabled-columne {
     background: url('breakpoint-log-disabled.svg') center center no-repeat;
 }
-.theia-debug-logpoint-unverified {
+.theia-debug-logpoint-unverified,
+.monaco-editor .theia-debug-breakpoint-column.theia-debug-logpoint-unverified-column {
     background: url('breakpoint-log-unverified.svg') center center no-repeat;
+}
+
+.theia-debug-function {
+	background: url('breakpoint-function.svg') center center no-repeat;
+}
+.theia-debug-function-disabled {
+	background: url('breakpoint-function-disabled.svg') center center no-repeat;
+}
+.theia-debug-function-unverified {
+	background: url('breakpoint-function-unverified.svg') center center no-repeat;
 }
 
 .monaco-editor .theia-debug-top-stack-frame {
 	background: url('current-arrow.svg') center center no-repeat;
 }
-.monaco-editor .theia-debug-top-stack-frame.theia-debug-breakpoint {
+.monaco-editor .theia-debug-top-stack-frame.theia-debug-breakpoint,
+.monaco-editor .theia-debug-breakpoint-column.theia-debug-breakpoint-column.debug-top-stack-frame-column {
 	background: url('current-and-breakpoint.svg') center center no-repeat;
 }
 .monaco-editor .view-overlays .theia-debug-top-stack-frame-line {
-    background: #ffff6673;
-}
-.monaco-editor.vs-dark .view-overlays .theia-debug-top-stack-frame-line {
-    background: #ffff0033;
+    background: var(--theia-editor-stackFrameHighlightBackground);
 }
 
 .monaco-editor .theia-debug-focused-stack-frame {
@@ -267,11 +297,8 @@
 	background: url('stackframe-and-breakpoint.svg') center center no-repeat;
 }
 .monaco-editor .view-overlays .theia-debug-focused-stack-frame-line {
-    background: #cee7ce73;
- }
-.monaco-editor.vs-dark .view-overlays .theia-debug-focused-stack-frame-line {
-    background: #7abd7a4d;
- }
+    background: var(--theia-editor-focusedStackFrameHighlightBackground);
+}
 
 /** Toolbars */
 
@@ -307,9 +334,6 @@
     background: var(--theia-debug-step-out) center center no-repeat;
 }
 
-.breakpoints-remove-all {
-	background: var(--breakpoints-remove-all-url) center center no-repeat;
-}
 .breakpoints-activate {
 	background: var(--breakpoints-activate-url) center center no-repeat;
 }
@@ -322,8 +346,10 @@
     min-height: 324px;
     width: 324px;
     height: 324px;
-    border: 1px solid var(--theia-layout-color4);
-    background: var(--theia-layout-color0);
+    border: 1px solid var(--theia-editorHoverWidget-border);
+    background: var(--theia-editorHoverWidget-background);
+    /* TODO color: var(--theia-editorHoverWidget-foreground); with a newer Monaco version */ 
+    color: var(--theia-editorWidget-foreground);
 }
 
 .theia-debug-hover .theia-source-tree {
@@ -337,12 +363,13 @@
     text-overflow: ellipsis;
     padding: var(--theia-ui-padding);
     padding-left: calc(var(--theia-ui-padding)*2);
-    border-bottom: 1px solid var(--theia-layout-color4);
+    border-bottom: 1px solid var(--theia-editorHoverWidget-border);
 }
 
 .theia-debug-hover-content {
     display: flex;
     flex: 1;
+    overflow-y: auto;
 }
 
 /** Breakpoint Widget */
@@ -362,4 +389,34 @@
 	flex: 1;
 	margin-top: var(--theia-ui-padding);
 	margin-bottom: var(--theia-ui-padding);
+}
+
+/* Status Bar */
+.theia-mod-debugging #theia-statusBar {
+    background: var(--theia-statusBar-debuggingBackground);
+    color: var(--theia-statusBar-debuggingForeground);
+    border-top: var(--theia-border-width) solid var(--theia-statusBar-debuggingBorder);
+}
+
+/** Exception Widget */
+.monaco-editor .zone-widget .zone-widget-container.theia-debug-exception-widget {
+    color: var(--theia-editor-foreground);
+    font-size: var(--theia-code-font-size);
+    line-height: var(--theia-code-line-height);
+    font-family: var(--theia-code-font-family);
+    border-top-color: var(--theia-debugExceptionWidget-border);
+    border-bottom-color: var(--theia-debugExceptionWidget-border);
+    background-color: var(--theia-debugExceptionWidget-background);
+    padding: var(--theia-ui-padding) calc(var(--theia-ui-padding)*1.5);
+	white-space: pre-wrap;
+	user-select: text;
+    overflow: hidden;
+}
+
+.theia-debug-exception-widget .title {
+	font-weight: bold;
+}
+
+.theia-debug-exception-widget .stack-trace {
+	margin-top: 0.5em;
 }

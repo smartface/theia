@@ -262,9 +262,7 @@ export class HostedPluginManagerClient {
             throw new Error('Unable to find the root');
         }
 
-        const name = this.labelProvider.getName(workspaceFolder);
-        const label = await this.labelProvider.getIcon(workspaceFolder);
-        const rootNode = DirNode.createRoot(workspaceFolder, name, label);
+        const rootNode = DirNode.createRoot(workspaceFolder);
 
         const dialog = this.openFileDialogFactory({
             title: HostedPluginCommands.SELECT_PATH.label!,
@@ -325,7 +323,7 @@ class OpenHostedInstanceLinkDialog extends AbstractDialog<string> {
 
         this.linkNode = document.createElement('a');
         this.linkNode.target = '_blank';
-        this.linkNode.setAttribute('style', 'color: var(--theia-ui-dialog-font-color);');
+        this.linkNode.setAttribute('style', 'color: var(--theia-editorWidget-foreground);');
         this.contentNode.appendChild(this.linkNode);
 
         const messageNode = document.createElement('div');

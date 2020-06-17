@@ -14,7 +14,7 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  ********************************************************************************/
 
-import { ApplicationShell, FrontendApplication, WidgetManager } from '@theia/core/lib/browser';
+import { ApplicationShell, FrontendApplication, WidgetManager, WidgetOpenMode } from '@theia/core/lib/browser';
 import { open, OpenerService } from '@theia/core/lib/browser/opener-service';
 import { ILogger, CommandService } from '@theia/core/lib/common';
 import { MessageService } from '@theia/core/lib/common/message-service';
@@ -26,11 +26,11 @@ import { EditorManager } from '@theia/editor/lib/browser';
 import { ProblemManager } from '@theia/markers/lib/browser/problem/problem-manager';
 import { TerminalService } from '@theia/terminal/lib/browser/base/terminal-service';
 import { TerminalWidget } from '@theia/terminal/lib/browser/base/terminal-widget';
-import { TerminalWidgetFactoryOptions, TERMINAL_WIDGET_FACTORY_ID } from '@theia/terminal/lib/browser/terminal-widget-impl';
+import { TerminalWidgetFactoryOptions } from '@theia/terminal/lib/browser/terminal-widget-impl';
 import { VariableResolverService } from '@theia/variable-resolver/lib/browser';
 import { WorkspaceService } from '@theia/workspace/lib/browser/workspace-service';
 import { inject, injectable, named, postConstruct } from 'inversify';
-import { Range } from 'vscode-languageserver-types';
+import { DiagnosticSeverity, Range } from 'vscode-languageserver-types';
 import {
     NamedProblemMatcher,
     ProblemMatchData,
@@ -45,12 +45,16 @@ import {
     TaskDefinition,
     TaskServer,
     TaskIdentifier,
-    DependsOrder
+    DependsOrder,
+    RevealKind,
+    ApplyToKind,
+    TaskOutputPresentation,
+    TaskConfigurationScope
 } from '../common';
 import { TaskWatcher } from '../common/task-watcher';
 import { ProvidedTaskConfigurations } from './provided-task-configurations';
 import { TaskConfigurationClient, TaskConfigurations } from './task-configurations';
-import { TaskProviderRegistry, TaskResolverRegistry } from './task-contribution';
+import { TaskResolverRegistry } from './task-contribution';
 import { TaskDefinitionRegistry } from './task-definition-registry';
 import { TaskNameResolver } from './task-name-resolver';
 import { TaskSourceResolver } from './task-source-resolver';
@@ -59,6 +63,8 @@ import { TaskSchemaUpdater } from './task-schema-updater';
 import { TaskConfigurationManager } from './task-configuration-manager';
 import { PROBLEMS_WIDGET_ID, ProblemWidget } from '@theia/markers/lib/browser/problem/problem-widget';
 import { TaskNode } from './task-node';
+import { MonacoWorkspace } from '@theia/monaco/lib/browser/monaco-workspace';
+import { TaskTerminalWidgetManager } from './task-terminal-widget-manager';
 
 export interface QuickPickProblemMatcherItem {
     problemMatchers: NamedProblemMatcher[] | undefined;
@@ -86,7 +92,7 @@ export class TaskService implements TaskConfigurationClient {
     /**
      * The last executed task.
      */
-    protected lastTask: { source: string, taskLabel: string } | undefined = undefined;
+    protected lastTask: { source: string, taskLabel: string, scope: TaskConfigurationScope } | undefined = undefined;
     protected cachedRecentTasks: TaskConfiguration[] = [];
     protected runningTasks = new Map<number, {
         exitCode: Deferred<number | undefined>,
@@ -168,11 +174,12 @@ export class TaskService implements TaskConfigurationClient {
 
     @inject(LabelProvider)
     protected readonly labelProvider: LabelProvider;
-    /**
-     * @deprecated To be removed in 0.5.0
-     */
-    @inject(TaskProviderRegistry)
-    protected readonly taskProviderRegistry: TaskProviderRegistry;
+
+    @inject(MonacoWorkspace)
+    protected monacoWorkspace: MonacoWorkspace;
+
+    @inject(TaskTerminalWidgetManager)
+    protected readonly taskTerminalWidgetManager: TaskTerminalWidgetManager;
 
     @postConstruct()
     protected init(): void {
@@ -201,27 +208,56 @@ export class TaskService implements TaskConfigurationClient {
             this.messageService.info(`Task '${taskIdentifier}' has been started.`);
         });
 
-        this.taskWatcher.onOutputProcessed((event: TaskOutputProcessedEvent) => {
+        this.taskWatcher.onOutputProcessed(async (event: TaskOutputProcessedEvent) => {
             if (!this.isEventForThisClient(event.ctx)) {
                 return;
             }
             if (event.problems) {
+                const runningTasksInfo: TaskInfo[] = await this.getRunningTasks();
+                // check if the task is active
+                const matchedRunningTaskInfo = runningTasksInfo.find(taskInfo => {
+                    const taskConfig = taskInfo.config;
+                    return this.taskDefinitionRegistry.compareTasks(taskConfig, event.config);
+                });
+                const isTaskActiveAndOutputSilent = matchedRunningTaskInfo &&
+                    matchedRunningTaskInfo.config.presentation && matchedRunningTaskInfo.config.presentation.reveal === RevealKind.Silent;
                 event.problems.forEach(problem => {
                     const existingMarkers = this.problemManager.findMarkers({ owner: problem.description.owner });
                     const uris = new Set<string>();
                     existingMarkers.forEach(marker => uris.add(marker.uri));
                     if (ProblemMatchData.is(problem) && problem.resource) {
+                        // When task.presentation.reveal === RevealKind.Silent, put focus on the terminal only if it is an error
+                        if (isTaskActiveAndOutputSilent && problem.marker.severity === DiagnosticSeverity.Error) {
+                            const terminalId = matchedRunningTaskInfo!.terminalId;
+                            if (terminalId) {
+                                const terminal = this.terminalService.getByTerminalId(terminalId);
+                                if (terminal) {
+                                    const focus = !!matchedRunningTaskInfo!.config.presentation!.focus;
+                                    if (focus) { // assign focus to the terminal if presentation.focus is true
+                                        this.terminalService.open(terminal, { mode: 'activate' });
+                                    } else { // show the terminal but not assign focus
+                                        this.terminalService.open(terminal, { mode: 'reveal' });
+                                    }
+                                }
+                            }
+                        }
                         const uri = new URI(problem.resource.path).withScheme(problem.resource.scheme);
-                        if (uris.has(uri.toString())) {
-                            const newData = [
-                                ...existingMarkers
-                                    .filter(marker => marker.uri === uri.toString())
-                                    .map(markerData => markerData.data),
-                                problem.marker
-                            ];
-                            this.problemManager.setMarkers(uri, problem.description.owner, newData);
-                        } else {
-                            this.problemManager.setMarkers(uri, problem.description.owner, [problem.marker]);
+                        const document = this.monacoWorkspace.getTextDocument(uri.toString());
+                        if (problem.description.applyTo === ApplyToKind.openDocuments && !!document ||
+                            problem.description.applyTo === ApplyToKind.closedDocuments && !document ||
+                            problem.description.applyTo === ApplyToKind.allDocuments
+                        ) {
+                            if (uris.has(uri.toString())) {
+                                const newData = [
+                                    ...existingMarkers
+                                        .filter(marker => marker.uri === uri.toString())
+                                        .map(markerData => markerData.data),
+                                    problem.marker
+                                ];
+                                this.problemManager.setMarkers(uri, problem.description.owner, newData);
+                            } else {
+                                this.problemManager.setMarkers(uri, problem.description.owner, [problem.marker]);
+                            }
                         }
                     } else { // should have received an event for finding the "background task begins" pattern
                         uris.forEach(uriString => this.problemManager.setMarkers(new URI(uriString), problem.description.owner, []));
@@ -268,6 +304,18 @@ export class TaskService implements TaskConfigurationClient {
                 if (event.code === 0) {
                     this.messageService.info(message);
                 } else {
+                    const eventTaskConfig = event.config;
+                    if (eventTaskConfig && eventTaskConfig.presentation && eventTaskConfig.presentation.reveal === RevealKind.Silent && event.terminalId) {
+                        const terminal = this.terminalService.getByTerminalId(event.terminalId);
+                        const focus = !!eventTaskConfig.presentation.focus;
+                        if (terminal) {
+                            if (focus) { // assign focus to the terminal if presentation.focus is true
+                                this.terminalService.open(terminal, { mode: 'activate' });
+                            } else { // show the terminal but not assign focus
+                                this.terminalService.open(terminal, { mode: 'reveal' });
+                            }
+                        }
+                    }
                     this.messageService.error(message);
                 }
             } else if (event.signal !== undefined) {
@@ -278,7 +326,7 @@ export class TaskService implements TaskConfigurationClient {
         });
     }
 
-    private getTaskIdentifier(taskConfig: TaskConfiguration): string {
+    protected getTaskIdentifier(taskConfig: TaskConfiguration): string {
         const taskName = this.taskNameResolver.resolve(taskConfig);
         const sourceStrUri = this.taskSourceResolver.resolve(taskConfig);
         return `${taskName} (${this.labelProvider.getName(new URI(sourceStrUri))})`;
@@ -362,10 +410,17 @@ export class TaskService implements TaskConfigurationClient {
     }
 
     /**
+     * Open user ser
+     */
+    openUserTasks(): Promise<void> {
+        return this.taskConfigurations.openUserTasks();
+    }
+
+    /**
      * Returns a task configuration provided by an extension by task source and label.
      * If there are no task configuration, returns undefined.
      */
-    async getProvidedTask(source: string, label: string, scope?: string): Promise<TaskConfiguration | undefined> {
+    async getProvidedTask(source: string, label: string, scope: TaskConfigurationScope): Promise<TaskConfiguration | undefined> {
         return this.providedTaskConfigurations.getTask(source, label, scope);
     }
 
@@ -384,7 +439,7 @@ export class TaskService implements TaskConfigurationClient {
      *
      * @returns the last executed task or `undefined`.
      */
-    getLastTask(): { source: string, taskLabel: string } | undefined {
+    getLastTask(): { source: string, taskLabel: string, scope: TaskConfigurationScope } | undefined {
         return this.lastTask;
     }
 
@@ -392,14 +447,14 @@ export class TaskService implements TaskConfigurationClient {
      * Runs a task, by task configuration label.
      * Note, it looks for a task configured in tasks.json only.
      */
-    async runConfiguredTask(source: string, taskLabel: string): Promise<void> {
-        const task = this.taskConfigurations.getTask(source, taskLabel);
+    async runConfiguredTask(scope: TaskConfigurationScope, taskLabel: string): Promise<void> {
+        const task = this.taskConfigurations.getTask(scope, taskLabel);
         if (!task) {
             this.logger.error(`Can't get task launch configuration for label: ${taskLabel}`);
             return;
         }
 
-        this.run(source, taskLabel);
+        this.run(task._source, taskLabel, scope);
     }
 
     /**
@@ -409,18 +464,22 @@ export class TaskService implements TaskConfigurationClient {
         if (!this.lastTask) {
             return;
         }
-        const { source, taskLabel } = this.lastTask;
-        return this.run(source, taskLabel);
+        const { source, taskLabel, scope } = this.lastTask;
+        return this.run(source, taskLabel, scope);
     }
 
     /**
      * Runs a task, by the source and label of the task configuration.
      * It looks for configured and detected tasks.
      */
-    async run(source: string, taskLabel: string, scope?: string): Promise<TaskInfo | undefined> {
-        let task = await this.getProvidedTask(source, taskLabel, scope);
-        if (!task) { // if a detected task cannot be found, search from tasks.json
-            task = this.taskConfigurations.getTask(source, taskLabel);
+    async run(source: string, taskLabel: string, scope: TaskConfigurationScope): Promise<TaskInfo | undefined> {
+        let task: TaskConfiguration | undefined;
+        task = this.taskConfigurations.getTask(scope, taskLabel);
+        if (!task) { // if a configured task cannot be found, search from detected tasks
+            task = await this.getProvidedTask(source, taskLabel, scope);
+            if (!task) { // find from the customized detected tasks
+                task = await this.taskConfigurations.getCustomizedTask(scope, taskLabel);
+            }
             if (!task) {
                 this.logger.error(`Can't get task launch configuration for label: ${taskLabel}`);
                 return;
@@ -455,20 +514,33 @@ export class TaskService implements TaskConfigurationClient {
             }
         }
 
-        const tasks = await this.getWorkspaceTasks(task._scope);
         const resolvedMatchers = await this.resolveProblemMatchers(task, customizationObject);
+        const runTaskOption: RunTaskOption = {
+            customization: { ...customizationObject, ...{ problemMatcher: resolvedMatchers } }
+        };
+
+        if (task.dependsOn) {
+            return this.runCompoundTask(task, runTaskOption);
+        } else {
+            return this.runTask(task, runTaskOption).catch(error => {
+                console.error('Error at launching task', error);
+                return undefined;
+            });
+        }
+    }
+
+    async runCompoundTask(task: TaskConfiguration, option?: RunTaskOption): Promise<TaskInfo | undefined> {
+        const tasks = await this.getWorkspaceTasks(task._scope);
         try {
             const rootNode = new TaskNode(task, [], []);
             this.detectDirectedAcyclicGraph(task, rootNode, tasks);
         } catch (error) {
-            this.logger.error(error.message);
+            console.error(`Error at launching task '${task.label}'`, error);
             this.messageService.error(error.message);
             return undefined;
         }
-        return this.runTasksGraph(task, tasks, {
-            customization: { ...customizationObject, ...{ problemMatcher: resolvedMatchers } }
-        }).catch(error => {
-            console.log(error.message);
+        return this.runTasksGraph(task, tasks, option).catch(error => {
+            console.error(`Error at launching task '${task.label}'`, error);
             return undefined;
         });
     }
@@ -654,9 +726,13 @@ export class TaskService implements TaskConfigurationClient {
             const taskName = this.taskNameResolver.resolve(task);
             const terminalId = matchedRunningTaskInfo.terminalId;
             if (terminalId) {
-                const terminal = this.terminalService.getById(this.getTerminalWidgetId(terminalId));
+                const terminal = this.terminalService.getByTerminalId(terminalId);
                 if (terminal) {
-                    this.shell.activateWidget(terminal.id); // make the terminal visible and assign focus
+                    if (TaskOutputPresentation.shouldSetFocusToTerminal(task)) { // assign focus to the terminal if presentation.focus is true
+                        this.terminalService.open(terminal, { mode: 'activate' });
+                    } else if (TaskOutputPresentation.shouldAlwaysRevealTerminal(task)) { // show the terminal but not assign focus
+                        this.terminalService.open(terminal, { mode: 'reveal' });
+                    }
                 }
             }
             const selectedAction = await this.messageService.info(`The task '${taskName}' is already active`, 'Terminate Task', 'Restart Task');
@@ -674,7 +750,7 @@ export class TaskService implements TaskConfigurationClient {
      * Terminates a task that is actively running.
      * @param activeTaskInfo the TaskInfo of the task that is actively running
      */
-    protected async terminateTask(activeTaskInfo: TaskInfo): Promise<void> {
+    async terminateTask(activeTaskInfo: TaskInfo): Promise<void> {
         const taskId = activeTaskInfo.taskId;
         return this.kill(taskId);
     }
@@ -683,7 +759,7 @@ export class TaskService implements TaskConfigurationClient {
      * Terminates a task that is actively running, and restarts it.
      * @param activeTaskInfo the TaskInfo of the task that is actively running
      */
-    protected async restartTask(activeTaskInfo: TaskInfo, option?: RunTaskOption): Promise<TaskInfo | undefined> {
+    async restartTask(activeTaskInfo: TaskInfo, option?: RunTaskOption): Promise<TaskInfo | undefined> {
         await this.terminateTask(activeTaskInfo);
         return this.doRunTask(activeTaskInfo.config, option);
     }
@@ -704,7 +780,7 @@ export class TaskService implements TaskConfigurationClient {
         const resolvedTask = await this.getResolvedTask(task);
         if (resolvedTask) {
             // remove problem markers from the same source before running the task
-            await this.removeProblemMarks(option);
+            await this.removeProblemMarkers(option);
             return this.runResolvedTask(resolvedTask, option);
         }
     }
@@ -751,7 +827,7 @@ export class TaskService implements TaskConfigurationClient {
      * @param task task that the updates will be applied to
      * @param update the updates to be applied
      */
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async updateTaskConfiguration(task: TaskConfiguration, update: { [name: string]: any }): Promise<void> {
         if (update.problemMatcher) {
             if (Array.isArray(update.problemMatcher)) {
@@ -767,9 +843,10 @@ export class TaskService implements TaskConfigurationClient {
         this.taskConfigurations.updateTaskConfig(task, update);
     }
 
-    protected async getWorkspaceTasks(workspaceFolderUri: string | undefined): Promise<TaskConfiguration[]> {
+    protected async getWorkspaceTasks(restrictToFolder: TaskConfigurationScope | undefined): Promise<TaskConfiguration[]> {
         const tasks = await this.getTasks();
-        return tasks.filter(t => t._scope === workspaceFolderUri || t._scope === undefined);
+        // if we pass undefined, return everything, otherwise only tasks with the same uri or workspace/global scope tasks
+        return tasks.filter(t => typeof t._scope !== 'string' || t._scope === restrictToFolder);
     }
 
     protected async resolveProblemMatchers(task: TaskConfiguration, customizationObject: TaskCustomization): Promise<ProblemMatcher[] | undefined> {
@@ -806,7 +883,7 @@ export class TaskService implements TaskConfigurationClient {
     }
 
     protected async getTaskCustomization(task: TaskConfiguration): Promise<TaskCustomization> {
-        const customizationObject: TaskCustomization = { type: '' };
+        const customizationObject: TaskCustomization = { type: '', _scope: task._scope };
         const customizationFound = this.taskConfigurations.getCustomizationForTask(task);
         if (customizationFound) {
             Object.assign(customizationObject, customizationFound);
@@ -819,7 +896,7 @@ export class TaskService implements TaskConfigurationClient {
         return customizationObject;
     }
 
-    private async removeProblemMarks(option?: RunTaskOption): Promise<void> {
+    protected async removeProblemMarkers(option?: RunTaskOption): Promise<void> {
         if (option && option.customization) {
             const matchersFromOption = option.customization.problemMatcher || [];
             for (const matcher of matchersFromOption) {
@@ -833,7 +910,7 @@ export class TaskService implements TaskConfigurationClient {
         }
     }
 
-    private async getResolvedTask(task: TaskConfiguration): Promise<TaskConfiguration | undefined> {
+    protected async getResolvedTask(task: TaskConfiguration): Promise<TaskConfiguration | undefined> {
         let resolver = undefined;
         let resolvedTask: TaskConfiguration;
         try {
@@ -853,12 +930,12 @@ export class TaskService implements TaskConfigurationClient {
      * @param resolvedTask the resolved task
      * @param option options to run the resolved task
      */
-    private async runResolvedTask(resolvedTask: TaskConfiguration, option?: RunTaskOption): Promise<TaskInfo | undefined> {
+    protected async runResolvedTask(resolvedTask: TaskConfiguration, option?: RunTaskOption): Promise<TaskInfo | undefined> {
         const source = resolvedTask._source;
         const taskLabel = resolvedTask.label;
         try {
             const taskInfo = await this.taskServer.run(resolvedTask, this.getContext(), option);
-            this.lastTask = { source, taskLabel };
+            this.lastTask = { source, taskLabel, scope: resolvedTask._scope };
             this.logger.debug(`Task created. Task id: ${taskInfo.taskId}`);
 
             /**
@@ -878,7 +955,7 @@ export class TaskService implements TaskConfigurationClient {
         }
     }
 
-    private getCustomizeProblemMatcherItems(): QuickPickItem<QuickPickProblemMatcherItem>[] {
+    protected getCustomizeProblemMatcherItems(): QuickPickItem<QuickPickProblemMatcherItem>[] {
         const items: QuickPickItem<QuickPickProblemMatcherItem>[] = [];
         items.push({
             label: 'Continue without scanning the task output',
@@ -920,8 +997,8 @@ export class TaskService implements TaskConfigurationClient {
             selectedRange = Range.create(startLine, 0, endLine + 1, 0);
         }
         const selectedText: string = this.editorManager.currentEditor.editor.document.getText(selectedRange).trimRight() + '\n';
-        let terminal = this.terminalService.currentTerminal;
-        if (!terminal) {
+        let terminal = this.terminalService.lastUsedTerminal;
+        if (!terminal || terminal.kind !== 'user' || (await terminal.hasChildProcesses())) {
             terminal = <TerminalWidget>await this.terminalService.newTerminal(<TerminalWidgetFactoryOptions>{ created: new Date().toString() });
             await terminal.start();
             this.terminalService.activateTerminal(terminal);
@@ -929,30 +1006,47 @@ export class TaskService implements TaskConfigurationClient {
         terminal.sendText(selectedText);
     }
 
-    async attach(processId: number, taskId: number): Promise<void> {
+    async attach(terminalId: number, taskId: number): Promise<void> {
         // Get the list of all available running tasks.
         const runningTasks: TaskInfo[] = await this.getRunningTasks();
         // Get the corresponding task information based on task id if available.
         const taskInfo: TaskInfo | undefined = runningTasks.find((t: TaskInfo) => t.taskId === taskId);
-        // Create terminal widget to display an execution output of a task that was launched as a command inside a shell.
-        const widget = <TerminalWidget>await this.widgetManager.getOrCreateWidget(
-            TERMINAL_WIDGET_FACTORY_ID,
-            <TerminalWidgetFactoryOptions>{
-                created: new Date().toString(),
-                id: this.getTerminalWidgetId(processId),
-                title: taskInfo
-                    ? `Task: ${taskInfo.config.label}`
-                    : `Task: #${taskId}`,
-                destroyTermOnClose: true
+        let widgetOpenMode: WidgetOpenMode = 'open';
+        if (taskInfo) {
+            const terminalWidget = this.terminalService.getByTerminalId(terminalId);
+            if (terminalWidget) {
+                this.messageService.error('Task is already running in terminal');
+                return this.terminalService.open(terminalWidget, { mode: 'activate' });
             }
-        );
-        this.shell.addWidget(widget, { area: 'bottom' });
-        this.shell.activateWidget(widget.id);
-        widget.start(processId);
+            if (TaskOutputPresentation.shouldAlwaysRevealTerminal(taskInfo.config)) {
+                if (TaskOutputPresentation.shouldSetFocusToTerminal(taskInfo.config)) { // assign focus to the terminal if presentation.focus is true
+                    widgetOpenMode = 'activate';
+                } else { // show the terminal but not assign focus
+                    widgetOpenMode = 'reveal';
+                }
+            }
+        }
+        // Create / find a terminal widget to display an execution output of a task that was launched as a command inside a shell.
+        const widget = await this.taskTerminalWidgetManager.open({
+            created: new Date().toString(),
+            id: this.getTerminalWidgetId(terminalId),
+            title: taskInfo
+                ? `Task: ${taskInfo.config.label}`
+                : `Task: #${taskId}`,
+            destroyTermOnClose: true
+        }, {
+            widgetOptions: { area: 'bottom' },
+            mode: widgetOpenMode,
+            taskInfo
+        });
+        widget.start(terminalId);
     }
 
-    private getTerminalWidgetId(terminalId: number): string {
-        return `${TERMINAL_WIDGET_FACTORY_ID}-${terminalId}`;
+    protected getTerminalWidgetId(terminalId: number): string | undefined {
+        const terminalWidget = this.terminalService.getByTerminalId(terminalId);
+        if (terminalWidget) {
+            return terminalWidget.id;
+        }
     }
 
     async configure(task: TaskConfiguration): Promise<void> {

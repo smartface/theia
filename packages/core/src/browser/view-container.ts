@@ -18,10 +18,9 @@ import { interfaces, injectable, inject, postConstruct } from 'inversify';
 import { IIterator, toArray, find, some, every, map } from '@phosphor/algorithm';
 import {
     Widget, EXPANSION_TOGGLE_CLASS, COLLAPSED_CLASS, MessageLoop, Message, SplitPanel, BaseWidget,
-    addEventListener, SplitLayout, LayoutItem, PanelLayout, addKeyListener
+    addEventListener, SplitLayout, LayoutItem, PanelLayout, addKeyListener, waitForRevealed
 } from './widgets';
 import { Event, Emitter } from '../common/event';
-import { Deferred } from '../common/promise-util';
 import { Disposable, DisposableCollection } from '../common/disposable';
 import { CommandRegistry } from '../common/command';
 import { MenuModelRegistry, MenuPath, MenuAction } from '../common/menu';
@@ -33,8 +32,7 @@ import { parseCssMagnitude } from './browser';
 import { WidgetManager } from './widget-manager';
 import { TabBarToolbarRegistry, TabBarToolbarFactory, TabBarToolbar } from './shell/tab-bar-toolbar';
 import { Key } from './keys';
-import { ProgressLocationService } from './progress-location-service';
-import { ProgressBar } from './progress-bar';
+import { ProgressBarFactory } from './progress-bar-factory';
 
 export interface ViewContainerTitleOptions {
     label: string;
@@ -58,7 +56,6 @@ export class ViewContainerIdentifier {
 export class ViewContainer extends BaseWidget implements StatefulWidget, ApplicationShell.TrackableWidgetProvider {
 
     protected panel: SplitPanel;
-    protected attached = new Deferred<void>();
 
     protected currentPart: ViewContainerPart | undefined;
 
@@ -92,8 +89,8 @@ export class ViewContainer extends BaseWidget implements StatefulWidget, Applica
     protected readonly onDidChangeTrackableWidgetsEmitter = new Emitter<Widget[]>();
     readonly onDidChangeTrackableWidgets = this.onDidChangeTrackableWidgetsEmitter.event;
 
-    @inject(ProgressLocationService)
-    protected readonly progressLocationService: ProgressLocationService;
+    @inject(ProgressBarFactory)
+    protected readonly progressBarFactory: ProgressBarFactory;
 
     @postConstruct()
     protected init(): void {
@@ -111,7 +108,7 @@ export class ViewContainer extends BaseWidget implements StatefulWidget, Applica
             }, this.splitPositionHandler)
         });
         this.panel.node.tabIndex = -1;
-        layout.addWidget(this.panel);
+        this.configureLayout(layout);
 
         const { commandRegistry, menuRegistry, contextMenuRenderer } = this;
         this.toDispose.pushAll([
@@ -145,9 +142,12 @@ export class ViewContainer extends BaseWidget implements StatefulWidget, Applica
             this.onDidChangeTrackableWidgetsEmitter
         ]);
         if (this.options.progressLocationId) {
-            const onProgress = this.progressLocationService.onProgress(this.options.progressLocationId);
-            this.toDispose.push(new ProgressBar({ container: this.node, insertMode: 'prepend' }, onProgress));
+            this.toDispose.push(this.progressBarFactory({ container: this.node, insertMode: 'prepend', locationId: this.options.progressLocationId }));
         }
+    }
+
+    protected configureLayout(layout: PanelLayout): void {
+        layout.addWidget(this.panel);
     }
 
     protected readonly toDisposeOnCurrentPart = new DisposableCollection();
@@ -347,6 +347,9 @@ export class ViewContainer extends BaseWidget implements StatefulWidget, Applica
         if (!this.isVisible && this.lastVisibleState) {
             return this.lastVisibleState;
         }
+        return this.doStoreState();
+    }
+    protected doStoreState(): ViewContainer.State {
         const parts = this.getParts();
         const availableSize = this.containerLayout.getAvailableSize();
         const orientation = this.orientation;
@@ -366,13 +369,11 @@ export class ViewContainer extends BaseWidget implements StatefulWidget, Applica
         return { parts: partStates, title: this.titleOptions };
     }
 
-    /**
-     * The view container restores the visibility, order and relative sizes of contained
-     * widgets, but _not_ the widgets themselves. In case the set of widgets is not fixed,
-     * it should be restored in the specific subclass or in the widget holding the view container.
-     */
     restoreState(state: ViewContainer.State): void {
         this.lastVisibleState = state;
+        this.doRestoreState(state);
+    }
+    protected doRestoreState(state: ViewContainer.State): void {
         this.setTitleOptions(state.title);
         // restore widgets
         for (const part of state.parts) {
@@ -397,10 +398,8 @@ export class ViewContainer extends BaseWidget implements StatefulWidget, Applica
             const part = parts[index];
             const partState = partStates.find(s => part.partId === s.partId);
             if (partState) {
+                part.setHidden(partState.hidden);
                 part.collapsed = partState.collapsed || !partState.relativeSize;
-                if (part.canHide) {
-                    part.setHidden(partState.hidden);
-                }
             } else if (part.canHide) {
                 part.hide();
             }
@@ -408,7 +407,7 @@ export class ViewContainer extends BaseWidget implements StatefulWidget, Applica
         }
 
         // Restore part sizes
-        this.attached.promise.then(() => {
+        waitForRevealed(this).then(() => {
             this.containerLayout.setPartSizes(partStates.map(partState => partState.relativeSize));
         });
     }
@@ -541,7 +540,6 @@ export class ViewContainer extends BaseWidget implements StatefulWidget, Applica
             }
         }
         super.onAfterAttach(msg);
-        requestAnimationFrame(() => this.attached.resolve());
     }
 
     protected onBeforeHide(msg: Message): void {
@@ -923,7 +921,7 @@ export class ViewContainerPart extends BaseWidget {
     protected onAfterAttach(msg: Message): void {
         if (!this.wrapped.isAttached) {
             MessageLoop.sendMessage(this.wrapped, Widget.Msg.BeforeAttach);
-            // tslint:disable-next-line:no-null-keyword
+            // eslint-disable-next-line no-null/no-null
             this.body.insertBefore(this.wrapped.node, null);
             MessageLoop.sendMessage(this.wrapped, Widget.Msg.AfterAttach);
         }
@@ -954,7 +952,7 @@ export class ViewContainerPart extends BaseWidget {
     }
 
     protected onBeforeHide(msg: Message): void {
-        if (this.wrapped.isAttached && this.collapsed) {
+        if (this.wrapped.isAttached && !this.collapsed) {
             MessageLoop.sendMessage(this.wrapped, msg);
         }
         super.onBeforeShow(msg);
@@ -962,7 +960,7 @@ export class ViewContainerPart extends BaseWidget {
 
     protected onAfterHide(msg: Message): void {
         super.onAfterHide(msg);
-        if (this.wrapped.isAttached && this.collapsed) {
+        if (this.wrapped.isAttached && !this.collapsed) {
             MessageLoop.sendMessage(this.wrapped, msg);
         }
     }
@@ -1018,7 +1016,7 @@ export class ViewContainerLayout extends SplitLayout {
     }
 
     protected get items(): ReadonlyArray<LayoutItem & ViewContainerLayout.Item> {
-        // tslint:disable-next-line:no-any
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         return (this as any)._items as Array<LayoutItem & ViewContainerLayout.Item>;
     }
 
@@ -1226,8 +1224,7 @@ export class ViewContainerLayout extends SplitLayout {
             } else {
                 const minSize = `${this.options.headerSize + part.minSize}px`;
                 style.minHeight = minSize;
-                // tslint:disable-next-line:no-null-keyword
-                style.maxHeight = null;
+                style.maxHeight = '';
             }
         }
         super.onFitRequest(msg);
@@ -1245,7 +1242,7 @@ export class ViewContainerLayout extends SplitLayout {
             referenceWidget: this.widgets[index],
             duration: 0
         };
-        // tslint:disable-next-line:no-any
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         return this.splitPositionHandler.setSplitHandlePosition(this.parent as SplitPanel, index, position, options) as Promise<any>;
     }
 

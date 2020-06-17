@@ -14,13 +14,13 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  ********************************************************************************/
 
-import URI from 'vscode-uri/lib/umd';
+import { URI } from 'vscode-uri';
 import * as theia from '@theia/plugin';
 import { DocumentsExtImpl } from '../documents';
 import * as types from '../types-impl';
 import * as Converter from '../type-converters';
 import { Position } from '../../common/plugin-api-rpc';
-import { Definition, DefinitionLink, Location } from '../../common/plugin-api-rpc-model';
+import { Definition, LocationLink, Location } from '../../common/plugin-api-rpc-model';
 import { isDefinitionLinkArray, isLocationArray } from './util';
 
 export class ImplementationAdapter {
@@ -30,7 +30,7 @@ export class ImplementationAdapter {
         private readonly documents: DocumentsExtImpl) {
     }
 
-    provideImplementation(resource: URI, position: Position, token: theia.CancellationToken): Promise<Definition | DefinitionLink[] | undefined> {
+    provideImplementation(resource: URI, position: Position, token: theia.CancellationToken): Promise<Definition | undefined> {
         const documentData = this.documents.getDocumentData(resource);
         if (!documentData) {
             return Promise.reject(new Error(`There is no document for ${resource}`));
@@ -59,7 +59,7 @@ export class ImplementationAdapter {
             }
 
             if (isDefinitionLinkArray(definition)) {
-                const definitionLinks: DefinitionLink[] = [];
+                const definitionLinks: LocationLink[] = [];
 
                 for (const definitionLink of definition) {
                     definitionLinks.push(Converter.fromDefinitionLink(definitionLink));

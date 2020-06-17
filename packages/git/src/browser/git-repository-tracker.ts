@@ -65,14 +65,11 @@ export class GitRepositoryTracker {
         }
     }, 50);
 
-    protected async setStatus(event: GitStatusChangeEvent | undefined, token: CancellationToken): Promise<void> {
+    protected setStatus(event: GitStatusChangeEvent | undefined, token: CancellationToken): void {
         const status = event && event.status;
         const scmProvider = this.repositoryProvider.selectedScmProvider;
         if (scmProvider) {
-            await scmProvider.setStatus(status, token);
-        }
-        if (token.isCancellationRequested) {
-            return;
+            scmProvider.setStatus(status);
         }
         this.workingDirectoryStatus = status;
         this.onGitEventEmitter.fire(event);
@@ -93,7 +90,7 @@ export class GitRepositoryTracker {
     }
 
     /**
-     * Returns the last known status of the selected respository, or `undefined` if no repositories are available.
+     * Returns the last known status of the selected repository, or `undefined` if no repositories are available.
      */
     get selectedRepositoryStatus(): WorkingDirectoryStatus | undefined {
         return this.workingDirectoryStatus;

@@ -16,7 +16,7 @@
 
 import { inject, injectable, postConstruct } from 'inversify';
 import { Message } from '@theia/core/lib/browser';
-import { OutputChannelManager, OutputChannel } from '../common/output-channel';
+import { OutputChannel, OutputChannelManager, OutputChannelSeverity } from '../common/output-channel';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import * as React from 'react';
 
@@ -78,9 +78,28 @@ export class OutputWidget extends ReactWidget {
         </React.Fragment>;
     }
 
-    public clear(): void {
+    clear(): void {
         if (this.outputChannelManager.selectedChannel) {
             this.outputChannelManager.selectedChannel.clear();
+        }
+    }
+
+    selectAll(): void {
+        if (this.outputChannelManager.selectedChannel) {
+            const element = document.getElementById(OutputWidget.IDs.CONTENTS);
+            if (element) {
+                const selectElementContent = (htmlElement: HTMLElement) => {
+                    const selection = window.getSelection();
+                    const range = document.createRange();
+                    if (selection && range) {
+                        range.selectNodeContents(htmlElement);
+                        selection.removeAllRanges();
+                        selection.addRange(range);
+                    }
+                };
+                element.focus();
+                selectElementContent(element);
+            }
         }
     }
 
@@ -92,21 +111,22 @@ export class OutputWidget extends ReactWidget {
         let id = 0;
         const result = [];
 
-        const style: React.CSSProperties = {
-            whiteSpace: 'pre',
-            fontFamily: 'monospace',
-        };
-
         if (this.outputChannelManager.selectedChannel) {
-            for (const text of this.outputChannelManager.selectedChannel.getLines()) {
-                const lines = text.split(/[\n\r]+/);
+            for (const outputChannelLine of this.outputChannelManager.selectedChannel.getLines()) {
+                const lines = outputChannelLine.text.split(/[\n\r]+/);
+                let className;
+                if (outputChannelLine.severity === OutputChannelSeverity.Error) {
+                    className = 'theia-output-error';
+                } else if (outputChannelLine.severity === OutputChannelSeverity.Warning) {
+                    className = 'theia-output-warning';
+                }
                 for (const line of lines) {
-                    result.push(<div style={style} key={id++}>{line}</div>);
+                    result.push(<div className={`theia-output-lines ${className}`} key={id++}>{line}</div>);
                 }
             }
         }
         if (result.length === 0) {
-            result.push(<div style={style} key={id++}>{'<no output yet>'}</div>);
+            result.push(<div className={'theia-output-lines'} key={id++}>{'<no output yet>'}</div>);
         }
         return result;
     }

@@ -16,7 +16,6 @@
 
 .theia-marker-container {
     font-size: var(--theia-ui-font-size1);
-    color: var(--theia-ui-font-color1);
 }
 
 .theia-side-panel .theia-marker-container .noMarkers {
@@ -48,36 +47,31 @@
 
 .theia-marker-container .markerFileNode .path {
     font-size: var(--theia-ui-font-size0);
-    color: var(--theia-ui-font-color2);
+    color: var(--theia-descriptionForeground);
     align-self: flex-end;
     white-space: nowrap;
 }
 
 .theia-marker-container .error {
-    color: var(--theia-error-color0);
+    color: var(--theia-editorError-foreground);
 }
 
 .theia-marker-container .warning {
-    color: var(--theia-warn-color0);
+    color: var(--theia-editorWarning-foreground);
 }
 
 .theia-marker-container .information {
-    color: var(--theia-info-color0);
+    color: var(--theia-editorInfo-foreground);
 }
 
 .theia-marker-container .hint {
-    color: var(--theia-success-color0);
+    color: var(--theia-successBackground);
 }
 
 .theia-marker-container .markerNode .position,
-.theia-marker-container .markerNode .owner,
-.theia-marker-container .markerNode .code {
-    color: var(--theia-ui-font-color2);
+.theia-marker-container .markerNode .owner {
+    color: var(--theia-descriptionForeground);
     white-space: nowrap;
-}
-
-.theia-marker-container .markerNode .position,
-.theia-marker-container .markerNode .code {
     margin-left: 5px;
 }
 

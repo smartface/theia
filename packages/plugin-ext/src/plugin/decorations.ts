@@ -24,7 +24,7 @@ import {
 } from '../common/plugin-api-rpc';
 import { Event } from '@theia/core/lib/common/event';
 import { RPCProtocol } from '../common/rpc-protocol';
-import URI from 'vscode-uri';
+import { URI } from 'vscode-uri';
 import { Disposable } from './types-impl';
 
 export class DecorationsExtImpl implements DecorationsExt {
@@ -51,11 +51,11 @@ export class DecorationsExtImpl implements DecorationsExt {
         });
         const providerMain: DecorationProvider = {
             async provideDecoration(uri: string): Promise<DecorationData | undefined> {
-                const res = await provider.provideDecoration(URI.parse(uri), new CancelationTokenImpl());
+                const res = await provider.provideDecoration(URI.parse(uri), new CancellationTokenImpl());
                 if (res) {
                     let color;
                     if (res.color) {
-                        // tslint:disable:no-any
+                        /* eslint-disable @typescript-eslint/no-explicit-any */
                         const ob: any = res.color;
                         color = { id: ob.id };
                     }
@@ -85,7 +85,7 @@ export class DecorationsExtImpl implements DecorationsExt {
     }
 }
 
-class CancelationTokenImpl implements theia.CancellationToken {
+class CancellationTokenImpl implements theia.CancellationToken {
     readonly isCancellationRequested: boolean;
     readonly onCancellationRequested: Event<any>;
 }

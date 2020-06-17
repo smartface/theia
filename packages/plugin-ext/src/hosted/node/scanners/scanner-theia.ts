@@ -43,7 +43,9 @@ import {
     SnippetContribution,
     PluginPackageCommand,
     PluginCommand,
-    IconUrl
+    IconUrl,
+    ThemeContribution,
+    IconThemeContribution
 } from '../../../common/plugin-protocol';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -57,6 +59,7 @@ import { FileUri } from '@theia/core/lib/node/file-uri';
 import { PreferenceSchema, PreferenceSchemaProperties } from '@theia/core/lib/common/preferences/preference-schema';
 import { RecursivePartial } from '@theia/core/lib/common/types';
 import { ProblemMatcherContribution, ProblemPatternContribution, TaskDefinition } from '@theia/task/lib/common/task-protocol';
+import { ColorDefinition } from '@theia/core/lib/browser/color-registry';
 
 namespace nls {
     export function localize(key: string, _default: string): string {
@@ -69,6 +72,8 @@ const INTERNAL_CONSOLE_OPTIONS_SCHEMA = {
     default: 'openOnFirstSessionStart',
     description: nls.localize('internalConsoleOptions', 'Controls when the internal debug console should open.')
 };
+
+const colorIdPattern = '^\\w+[.\\w+]*$';
 
 @injectable()
 export class TheiaPluginScanner implements PluginScanner {
@@ -85,6 +90,7 @@ export class TheiaPluginScanner implements PluginScanner {
     getModel(plugin: PluginPackage): PluginModel {
         const result: PluginModel = {
             packagePath: plugin.packagePath,
+            packageUri: FileUri.create(plugin.packagePath).toString(),
             // see id definition: https://github.com/microsoft/vscode/blob/15916055fe0cb9411a5f36119b3b012458fe0a1d/src/vs/platform/extensions/common/extensions.ts#L167-L169
             id: `${plugin.publisher.toLowerCase()}.${plugin.name.toLowerCase()}`,
             name: plugin.name,
@@ -271,6 +277,24 @@ export class TheiaPluginScanner implements PluginScanner {
         } catch (err) {
             console.error(`Could not read '${rawPlugin.name}' contribution 'snippets'.`, rawPlugin.contributes!.snippets, err);
         }
+
+        try {
+            contributions.themes = this.readThemes(rawPlugin);
+        } catch (err) {
+            console.error(`Could not read '${rawPlugin.name}' contribution 'themes'.`, rawPlugin.contributes.themes, err);
+        }
+
+        try {
+            contributions.iconThemes = this.readIconThemes(rawPlugin);
+        } catch (err) {
+            console.error(`Could not read '${rawPlugin.name}' contribution 'iconThemes'.`, rawPlugin.contributes.iconThemes, err);
+        }
+
+        try {
+            contributions.colors = this.readColors(rawPlugin);
+        } catch (err) {
+            console.error(`Could not read '${rawPlugin.name}' contribution 'colors'.`, rawPlugin.contributes.colors, err);
+        }
         return contributions;
     }
 
@@ -291,6 +315,86 @@ export class TheiaPluginScanner implements PluginScanner {
 
     protected toPluginUrl(pck: PluginPackage, relativePath: string): string {
         return PluginPackage.toPluginUrl(pck, relativePath);
+    }
+
+    protected readColors(pck: PluginPackage): ColorDefinition[] | undefined {
+        if (!pck.contributes || !pck.contributes.colors) {
+            return undefined;
+        }
+        const result: ColorDefinition[] = [];
+        for (const contribution of pck.contributes.colors) {
+            if (typeof contribution.id !== 'string' || contribution.id.length === 0) {
+                console.error("'configuration.colors.id' must be defined and can not be empty");
+                continue;
+            }
+            if (!contribution.id.match(colorIdPattern)) {
+                console.error("'configuration.colors.id' must follow the word[.word]*");
+                continue;
+            }
+            if (typeof contribution.description !== 'string' || contribution.id.length === 0) {
+                console.error("'configuration.colors.description' must be defined and can not be empty");
+                continue;
+            }
+            const defaults = contribution.defaults;
+            if (!defaults || typeof defaults !== 'object' || typeof defaults.light !== 'string' || typeof defaults.dark !== 'string' || typeof defaults.highContrast !== 'string') {
+                console.error("'configuration.colors.defaults' must be defined and must contain 'light', 'dark' and 'highContrast'");
+                continue;
+            }
+            result.push({
+                id: contribution.id,
+                description: contribution.description,
+                defaults: {
+                    light: defaults.light,
+                    dark: defaults.dark,
+                    hc: defaults.highContrast
+                }
+            });
+        }
+        return result;
+    }
+
+    protected readThemes(pck: PluginPackage): ThemeContribution[] | undefined {
+        if (!pck.contributes || !pck.contributes.themes) {
+            return undefined;
+        }
+        const result: ThemeContribution[] = [];
+        for (const contribution of pck.contributes.themes) {
+            if (contribution.path) {
+                result.push({
+                    id: contribution.id,
+                    uri: FileUri.create(path.join(pck.packagePath, contribution.path)).toString(),
+                    description: contribution.description,
+                    label: contribution.label,
+                    uiTheme: contribution.uiTheme
+                });
+            }
+        }
+        return result;
+    }
+
+    protected readIconThemes(pck: PluginPackage): IconThemeContribution[] | undefined {
+        if (!pck.contributes || !pck.contributes.iconThemes) {
+            return undefined;
+        }
+        const result: IconThemeContribution[] = [];
+        for (const contribution of pck.contributes.iconThemes) {
+            if (typeof contribution.id !== 'string') {
+                console.error('Expected string in `contributes.iconThemes.id`. Provided value:', contribution.id);
+                continue;
+            }
+            if (typeof contribution.path !== 'string') {
+                console.error('Expected string in `contributes.iconThemes.path`. Provided value:', contribution.path);
+                continue;
+            }
+            result.push({
+                id: contribution.id,
+                uri: FileUri.create(path.join(pck.packagePath, contribution.path)).toString(),
+                description: contribution.description,
+                label: contribution.label,
+                uiTheme: contribution.uiTheme
+            });
+        }
+        return result;
     }
 
     protected readSnippets(pck: PluginPackage): SnippetContribution[] | undefined {
@@ -323,7 +427,7 @@ export class TheiaPluginScanner implements PluginScanner {
         }
     }
 
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     private readConfiguration(rawConfiguration: RecursivePartial<PreferenceSchema>, pluginPath: string): PreferenceSchema | undefined {
         return PreferenceSchema.is(rawConfiguration) ? rawConfiguration : undefined;
     }

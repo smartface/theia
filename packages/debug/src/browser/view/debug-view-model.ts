@@ -14,6 +14,7 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  ********************************************************************************/
 
+import debounce from 'p-debounce';
 import { injectable, inject, postConstruct } from 'inversify';
 import { Disposable, DisposableCollection, Event, Emitter } from '@theia/core/lib/common';
 import URI from '@theia/core/lib/common/uri';
@@ -21,7 +22,10 @@ import { DebugSession, DebugState } from '../debug-session';
 import { DebugSessionManager } from '../debug-session-manager';
 import { DebugThread } from '../model/debug-thread';
 import { DebugStackFrame } from '../model/debug-stack-frame';
-import { DebugBreakpoint } from '../model/debug-breakpoint';
+import { DebugSourceBreakpoint } from '../model/debug-source-breakpoint';
+import { DebugWatchExpression } from './debug-watch-expression';
+import { DebugWatchManager } from '../debug-watch-manager';
+import { DebugFunctionBreakpoint } from '../model/debug-function-breakpoint';
 
 export const DebugViewOptions = Symbol('DebugViewOptions');
 export interface DebugViewOptions {
@@ -34,6 +38,7 @@ export class DebugViewModel implements Disposable {
     protected readonly onDidChangeEmitter = new Emitter<void>();
     readonly onDidChange: Event<void> = this.onDidChangeEmitter.event;
     protected fireDidChange(): void {
+        this.refreshWatchExpressions();
         this.onDidChangeEmitter.fire(undefined);
     }
 
@@ -43,9 +48,18 @@ export class DebugViewModel implements Disposable {
         this.onDidChangeBreakpointsEmitter.fire(uri);
     }
 
+    protected readonly _watchExpressions = new Map<number, DebugWatchExpression>();
+
+    protected readonly onDidChangeWatchExpressionsEmitter = new Emitter<void>();
+    readonly onDidChangeWatchExpressions = this.onDidChangeWatchExpressionsEmitter.event;
+    protected fireDidChangeWatchExpressions(): void {
+        this.onDidChangeWatchExpressionsEmitter.fire(undefined);
+    }
+
     protected readonly toDispose = new DisposableCollection(
         this.onDidChangeEmitter,
-        this.onDidChangeBreakpointsEmitter
+        this.onDidChangeBreakpointsEmitter,
+        this.onDidChangeWatchExpressionsEmitter
     );
 
     @inject(DebugViewOptions)
@@ -53,6 +67,9 @@ export class DebugViewModel implements Disposable {
 
     @inject(DebugSessionManager)
     protected readonly manager: DebugSessionManager;
+
+    @inject(DebugWatchManager)
+    protected readonly watch: DebugWatchManager;
 
     protected readonly _sessions = new Set<DebugSession>();
     get sessions(): IterableIterator<DebugSession> {
@@ -109,6 +126,8 @@ export class DebugViewModel implements Disposable {
                 this.fireDidChangeBreakpoints(uri);
             }
         }));
+        this.updateWatchExpressions();
+        this.toDispose.push(this.watch.onDidChange(() => this.updateWatchExpressions()));
     }
 
     dispose(): void {
@@ -136,8 +155,12 @@ export class DebugViewModel implements Disposable {
         return currentThread && currentThread.currentFrame;
     }
 
-    get breakpoints(): DebugBreakpoint[] {
+    get breakpoints(): DebugSourceBreakpoint[] {
         return this.manager.getBreakpoints(this.currentSession);
+    }
+
+    get functionBreakpoints(): DebugFunctionBreakpoint[] {
+        return this.manager.getFunctionBreakpoints(this.currentSession);
     }
 
     async start(): Promise<void> {
@@ -165,5 +188,70 @@ export class DebugViewModel implements Disposable {
         }
         this.fireDidChange();
     }
+
+    get watchExpressions(): IterableIterator<DebugWatchExpression> {
+        return this._watchExpressions.values();
+    }
+
+    async addWatchExpression(expression: string = ''): Promise<DebugWatchExpression | undefined> {
+        const watchExpression = new DebugWatchExpression({
+            id: Number.MAX_SAFE_INTEGER,
+            expression,
+            session: () => this.currentSession,
+            onDidChange: () => { /* no-op */ }
+        });
+        await watchExpression.open();
+        if (!watchExpression.expression) {
+            return undefined;
+        }
+        const id = this.watch.addWatchExpression(watchExpression.expression);
+        return this._watchExpressions.get(id);
+    }
+
+    removeWatchExpressions(): void {
+        this.watch.removeWatchExpressions();
+    }
+
+    removeWatchExpression(expression: DebugWatchExpression): void {
+        this.watch.removeWatchExpression(expression.id);
+    }
+
+    protected updateWatchExpressions(): void {
+        let added = false;
+        const toRemove = new Set(this._watchExpressions.keys());
+        for (const [id, expression] of this.watch.watchExpressions) {
+            toRemove.delete(id);
+            if (!this._watchExpressions.has(id)) {
+                added = true;
+                const watchExpression = new DebugWatchExpression({
+                    id,
+                    expression,
+                    session: () => this.currentSession,
+                    onDidChange: () => this.fireDidChangeWatchExpressions()
+                });
+                this._watchExpressions.set(id, watchExpression);
+                watchExpression.evaluate();
+            }
+        }
+        for (const id of toRemove) {
+            this._watchExpressions.delete(id);
+        }
+        if (added || toRemove.size) {
+            this.fireDidChangeWatchExpressions();
+        }
+    }
+
+    protected refreshWatchExpressionsQueue = Promise.resolve();
+    protected refreshWatchExpressions = debounce(() => {
+        this.refreshWatchExpressionsQueue = this.refreshWatchExpressionsQueue.then(async () => {
+            try {
+                for (const watchExpression of this.watchExpressions) {
+                    await watchExpression.evaluate();
+                }
+            } catch (e) {
+                console.error('Failed to refresh watch expressions: ', e);
+            }
+        });
+    }, 50);
 
 }

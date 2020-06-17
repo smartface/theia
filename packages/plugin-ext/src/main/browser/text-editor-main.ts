@@ -234,17 +234,28 @@ export class TextEditorMain implements Disposable {
             this.model.setEOL(monaco.editor.EndOfLineSequence.LF);
         }
 
-        const transformedEdits = edits.map((edit): monaco.editor.IIdentifiedSingleEditOperation =>
-            ({
-                range: monaco.Range.lift(edit.range),
-                text: edit.text!,
+        const editOperations: monaco.editor.IIdentifiedSingleEditOperation[] = [];
+        for (const edit of edits) {
+            const { range, text } = edit;
+            if (!range && !text) {
+                continue;
+            }
+            if (range && range.startLineNumber === range.endLineNumber && range.startColumn === range.endColumn && !edit.text) {
+                continue;
+            }
+
+            editOperations.push({
+                range: range ? monaco.Range.lift(range) : this.editor.getControl().getModel()!.getFullModelRange(),
+                /* eslint-disable-next-line no-null/no-null */
+                text: text || null,
                 forceMoveMarkers: edit.forceMoveMarkers
-            }));
+            });
+        }
 
         if (opts.undoStopBefore) {
             this.editor.getControl().pushUndoStop();
         }
-        this.editor.getControl().executeEdits('MainThreadTextEditor', transformedEdits);
+        this.editor.getControl().executeEdits('MainThreadTextEditor', editOperations);
         if (opts.undoStopAfter) {
             this.editor.getControl().pushUndoStop();
         }
@@ -293,6 +304,7 @@ export class TextEditorMain implements Disposable {
     }
 }
 
+// TODO move to monaco typings!
 interface SnippetController2 extends monaco.editor.IEditorContribution {
     insert(template: string,
         overwriteBefore: number, overwriteAfter: number,
@@ -372,9 +384,10 @@ export class TextEditorPropertiesMain {
         let cursorStyle: TextEditorCursorStyle;
         let lineNumbers: TextEditorLineNumbersStyle;
         if (editor) {
-            const editorOptions = editor.getControl().getConfiguration();
-            cursorStyle = editorOptions.viewInfo.cursorStyle;
-            switch (editorOptions.viewInfo.renderLineNumbers) {
+            const editorOptions = editor.getControl().getOptions();
+            const lineNumbersOpts = editorOptions.get(monaco.editor.EditorOption.lineNumbers);
+            cursorStyle = editorOptions.get(monaco.editor.EditorOption.cursorStyle);
+            switch (lineNumbersOpts.renderType) {
                 case monaco.editor.RenderLineNumbersType.Off:
                     lineNumbers = TextEditorLineNumbersStyle.Off;
                     break;

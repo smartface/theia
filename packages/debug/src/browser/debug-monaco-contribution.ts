@@ -18,7 +18,7 @@
 *  Licensed under the MIT License. See License.txt in the project root for license information.
 *--------------------------------------------------------------------------------------------*/
 
-// tslint:disable:no-any
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { visit } from 'jsonc-parser';
 import URI from '@theia/core/lib/common/uri';
@@ -45,7 +45,8 @@ monaco.languages.registerDocumentSymbolProvider('jsonc', {
             kind: monaco.languages.SymbolKind.Object,
             range: new monaco.Range(0, 0, 0, 0),
             selectionRange: new monaco.Range(0, 0, 0, 0),
-            children
+            children,
+            tags: []
         };
         let name: string = '';
         let lastProperty = '';
@@ -75,7 +76,8 @@ monaco.languages.registerDocumentSymbolProvider('jsonc', {
                         detail: '',
                         kind: monaco.languages.SymbolKind.Object,
                         range,
-                        selectionRange: range
+                        selectionRange: range,
+                        tags: []
                     });
                 }
                 depthInObjects--;

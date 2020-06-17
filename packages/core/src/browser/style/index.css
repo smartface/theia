@@ -26,7 +26,44 @@ body {
   padding: 0;
   overflow: hidden;
   font-family: var(--theia-ui-font-family);
-  background: var(--theia-layout-color0);
+  background: var(--theia-editor-background);
+  color: var(--theia-foreground);
+  border: 1px solid var(--theia-window-activeBorder);
+}
+body:window-inactive,
+body:-moz-window-inactive {
+  border-color: var(--theia-window-inactiveBorder);
+}
+
+a {
+    color: var(--theia-textLink-foreground);
+}
+
+a:active, a:hover {
+    color: var(--theia-textLink-activeForeground);
+}
+
+code {
+    color: var(--theia-textPreformat-foreground);
+}
+
+blockquote {
+    background: var(--vscode-textBlockQuote-background);
+    border: var(--theia-border-width) solid var(--theia-textBlockQuote-border);
+}
+
+.theia-input {
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    border: var(--theia-border-width) solid var(--theia-input-border);
+    font-family: var(--theia-ui-font-family);
+    font-size: var(--theia-ui-font-size1);
+    line-height: var(--theia-content-line-height);
+    padding-left: 5px;
+}
+
+.theia-input::placeholder {
+    color: var(--theia-input-placeholderForeground);
 }
 
 .theia-maximized {
@@ -38,7 +75,7 @@ body {
     width: auto !important;
     height: auto !important;
     z-index: 255 !important;
-    background: var(--theia-layout-color0);
+    background: var(--theia-editor-background);
 }
 
 .theia-ApplicationShell {
@@ -47,7 +84,7 @@ body {
   left: 0;
   right: 0;
   bottom: 0;
-  background: var(--theia-layout-color0);
+  background: var(--theia-editor-background);
 }
 
 .theia-preload {
@@ -57,7 +94,7 @@ body {
   right: 0;
   bottom: 0;
   z-index: 50000;
-  background: var(--theia-layout-color0);
+  background: var(--theia-editor-background);
   background-image: var(--theia-preloader);
   background-size: 60px 60px;
   background-repeat: no-repeat;
@@ -89,7 +126,6 @@ body {
 
 .p-Widget {
   font-size: var(--theia-ui-font-size1);
-  color: var(--theia-ui-font-color1);
 }
 
 .p-Widget.p-mod-hidden {
@@ -111,11 +147,11 @@ body {
     outline-style: solid;
     outline-offset: -1px;
     opacity: 1 !important;
-    outline-color: var(--theia-accent-color3);
+    outline-color: var(--theia-focusBorder);
 }
 
 ::selection {
-    background: var(--theia-selected-text-background);
+    background: var(--theia-selection-background);
 }
 
 .p-Widget:focus {
@@ -125,8 +161,8 @@ body {
 
 button.theia-button, .theia-button {
     border: none;
-    color: var(--theia-ui-button-font-color);
-    background-color: var(--theia-ui-button-color);
+    color: var(--theia-button-foreground);
+    background-color: var(--theia-button-background);
     min-width: 65px;
     outline: none;
     cursor: pointer;
@@ -138,41 +174,41 @@ button.theia-button, .theia-button {
 }
 
 button.theia-button:hover, .theia-button:hover, .theia-button:focus {
-  background-color: var(--theia-ui-button-color-hover);
+  background-color: var(--theia-button-hoverBackground);
 }
 
 button.secondary, .theia-button.secondary {
-  color: var(--theia-ui-button-font-color-secondary);
-  background-color: var(--theia-ui-button-color-secondary);
+  color: var(--theia-secondaryButton-foreground);
+  background-color: var(--theia-secondaryButton-background);
 }
 
 button.secondary:hover, .theia-button.secondary:hover {
-  background-color: var(--theia-ui-button-color-secondary-hover);
+  background-color: var(--theia-secondaryButton-hoverBackground);
 }
 
 button.theia-button[disabled], .theia-button[disabled] {
   opacity: 0.6;
-  color: var(--theia-ui-button-font-color-disabled);
-  background-color: var(--theia-ui-button-color-disabled);
+  color: var(--theia-button-disabledForeground);
+  background-color: var(--theia-button-disabledBackground);
   cursor: default;
 }
 
 button.secondary[disabled], .theia-button.secondary[disabled] {
-    color: var(--theia-ui-button-font-color-secondary-disabled);
-    background-color: var(--theia-ui-button-color-secondary-disabled);
+    color: var(--theia-secondaryButton-disabledForeground);
+    background-color: var(--theia-secondaryButton-disabledBackground);
 }
 
-.p-Widget select {
-    color: var(--theia-ui-font-color1);
+.theia-select {
+    color: var(--dropdown-foreground);
     font-size: var(--theia-ui-font-size1);
     border-radius: 0;
-    border: 1px solid var(--theia-border-color1);
-    background: var(--theia-layout-color2);
+    border: 1px solid var(--theia-dropdown-border);
+    background: var(--theia-dropdown-background);
     outline: none;
 }
 
-textarea {
-  font-family: var(--theia-ui-font-family);
+.theia-select option {
+    background: var(--theia-dropdown-listBackground);
 }
 
 .theia-transparent-overlay {

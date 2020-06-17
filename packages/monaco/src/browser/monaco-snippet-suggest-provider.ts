@@ -53,7 +53,6 @@ export class MonacoSnippetSuggestProvider implements monaco.languages.Completion
         await this.loadSnippets(languageId);
         const snippetsForLanguage = this.snippets.get(languageId) || [];
 
-        let suggestions: MonacoSnippetSuggestion[];
         const pos = { lineNumber: position.lineNumber, column: 1 };
         const lineOffsets: number[] = [];
         const linePrefixLow = model.getLineContent(position.lineNumber).substr(0, position.column - 1).toLowerCase();
@@ -80,7 +79,7 @@ export class MonacoSnippetSuggestProvider implements monaco.languages.Completion
 
         const availableSnippets = new Set<Snippet>();
         snippetsForLanguage.forEach(availableSnippets.add, availableSnippets);
-        suggestions = [];
+        const suggestions: MonacoSnippetSuggestion[] = [];
         for (const start of lineOffsets) {
             availableSnippets.forEach(snippet => {
                 if (this.isPatternInWord(linePrefixLow, start, linePrefixLow.length, snippet.prefix.toLowerCase(), 0, snippet.prefix.length)) {
@@ -90,14 +89,14 @@ export class MonacoSnippetSuggestProvider implements monaco.languages.Completion
             });
         }
         if (endsInWhitespace || lineOffsets.length === 0) {
-            // add remaing snippets when the current prefix ends in whitespace or when no
+            // add remaining snippets when the current prefix ends in whitespace or when no
             // interesting positions have been found
             availableSnippets.forEach(snippet => {
                 suggestions.push(new MonacoSnippetSuggestion(snippet, monaco.Range.fromPositions(position)));
             });
         }
 
-        // dismbiguate suggestions with same labels
+        // disambiguate suggestions with same labels
         suggestions.sort(MonacoSnippetSuggestion.compareByLabel);
         return { suggestions };
     }
@@ -135,7 +134,7 @@ export class MonacoSnippetSuggestProvider implements monaco.languages.Completion
     }
 
     /**
-     * should NOT throw to prevent load erros on suggest
+     * should NOT throw to prevent load errors on suggest
      */
     protected async loadURI(uri: string | URI, options: SnippetLoadOptions, toDispose: DisposableCollection): Promise<void> {
         try {
@@ -155,11 +154,11 @@ export class MonacoSnippetSuggestProvider implements monaco.languages.Completion
     fromJSON(snippets: JsonSerializedSnippets | undefined, { language, source }: SnippetLoadOptions): Disposable {
         const toDispose = new DisposableCollection();
         this.parseSnippets(snippets, (name, snippet) => {
-            let { prefix, body, description } = snippet;
-            if (Array.isArray(body)) {
-                body = body.join('\n');
-            }
-            if (typeof prefix !== 'string' || typeof body !== 'string') {
+            const { prefix, body, description } = snippet;
+            const parsedBody = Array.isArray(body) ? body.join('\n') : body;
+            const parsedPrefixes = Array.isArray(prefix) ? prefix : [prefix];
+
+            if (typeof parsedBody !== 'string') {
                 return;
             }
             const scopes: string[] = [];
@@ -177,20 +176,20 @@ export class MonacoSnippetSuggestProvider implements monaco.languages.Completion
                     }
                 }
             }
-            toDispose.push(this.push({
+            parsedPrefixes.forEach(parsedPrefix => toDispose.push(this.push({
                 scopes,
                 name,
-                prefix,
+                prefix: parsedPrefix,
                 description,
-                body,
+                body: parsedBody,
                 source
-            }));
+            })));
         });
         return toDispose;
     }
     protected parseSnippets(snippets: JsonSerializedSnippets | undefined, accept: (name: string, snippet: JsonSerializedSnippet) => void): void {
         if (typeof snippets === 'object') {
-            // tslint:disable-next-line:forin
+            // eslint-disable-next-line guard-for-in
             for (const name in snippets) {
                 const scopeOrTemplate = snippets[name];
                 if (JsonSerializedSnippet.is(scopeOrTemplate)) {
@@ -243,7 +242,7 @@ export interface JsonSerializedSnippets {
 export interface JsonSerializedSnippet {
     body: string | string[];
     scope: string;
-    prefix: string;
+    prefix: string | string[];
     description: string;
 }
 export namespace JsonSerializedSnippet {

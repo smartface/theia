@@ -22,6 +22,7 @@ import { Drag } from '@phosphor/dragdrop';
 import { AttachedProperty } from '@phosphor/properties';
 import { TabBarRendererFactory, TabBarRenderer, SHELL_TABBAR_CONTEXT_MENU, SideTabBar } from './tab-bars';
 import { SplitPositionHandler, SplitPositionOptions } from './split-panels';
+import { animationFrame } from '../browser';
 import { FrontendApplicationStateService } from '../frontend-application-state';
 import { TheiaDockPanel } from './theia-dock-panel';
 import { SidePanelToolbar } from './side-panel-toolbar';
@@ -137,6 +138,7 @@ export class SidePanelHandler {
             suppressScrollX: true
         });
         tabBarRenderer.tabBar = sideBar;
+        sideBar.disposed.connect(() => tabBarRenderer.dispose());
         tabBarRenderer.contextMenuPath = SHELL_TABBAR_CONTEXT_MENU;
         sideBar.addClass('theia-app-' + side);
         sideBar.addClass(LEFT_RIGHT_AREA_CLASS);
@@ -232,6 +234,7 @@ export class SidePanelHandler {
             rank: SidePanelHandler.rankProperty.get(title.owner),
             expanded: title === currentTitle
         }));
+        // eslint-disable-next-line no-null/no-null
         const size = currentTitle !== null ? this.getPanelSize() : this.state.lastPanelSize;
         return { type: 'sidepanel', items, size };
     }
@@ -240,7 +243,7 @@ export class SidePanelHandler {
      * Apply a side panel layout that has been previously created with `getLayoutData`.
      */
     setLayoutData(layoutData: SidePanel.LayoutData): void {
-        // tslint:disable-next-line:no-null-keyword
+        // eslint-disable-next-line no-null/no-null
         this.tabBar.currentTitle = null;
 
         let currentTitle: Title<Widget> | undefined;
@@ -339,13 +342,14 @@ export class SidePanelHandler {
     /**
      * Collapse the sidebar so no items are expanded.
      */
-    collapse(): void {
+    collapse(): Promise<void> {
         if (this.tabBar.currentTitle) {
-            // tslint:disable-next-line:no-null-keyword
+            // eslint-disable-next-line no-null/no-null
             this.tabBar.currentTitle = null;
         } else {
             this.refresh();
         }
+        return animationFrame();
     }
 
     /**
@@ -364,7 +368,7 @@ export class SidePanelHandler {
     protected updateToolbarTitle = (): void => {
         const currentTitle = this.tabBar && this.tabBar.currentTitle;
         this.toolBar.toolbarTitle = currentTitle || undefined;
-    }
+    };
 
     /**
      * Refresh the visibility of the side bar and dock panel.
@@ -376,6 +380,7 @@ export class SidePanelHandler {
         const dockPanel = this.dockPanel;
         const isEmpty = tabBar.titles.length === 0;
         const currentTitle = tabBar.currentTitle;
+        // eslint-disable-next-line no-null/no-null
         const hideDockPanel = currentTitle === null;
         let relativeSizes: number[] | undefined;
 
@@ -523,14 +528,12 @@ export class SidePanelHandler {
         sender.releaseMouse();
 
         // Clone the selected tab and use that as drag image
-        // tslint:disable:no-null-keyword
         const clonedTab = tab.cloneNode(true) as HTMLElement;
-        clonedTab.style.width = null;
-        clonedTab.style.height = null;
+        clonedTab.style.width = '';
+        clonedTab.style.height = '';
         const label = clonedTab.getElementsByClassName('p-TabBar-tabLabel')[0] as HTMLElement;
-        label.style.width = null;
-        label.style.height = null;
-        // tslint:enable:no-null-keyword
+        label.style.width = '';
+        label.style.height = '';
 
         // Create and start a drag to move the selected tab to another panel
         const mimeData = new MimeData();

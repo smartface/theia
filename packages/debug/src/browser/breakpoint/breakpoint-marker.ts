@@ -21,11 +21,14 @@ import { DebugProtocol } from 'vscode-debugprotocol/lib/debugProtocol';
 
 export const BREAKPOINT_KIND = 'breakpoint';
 
-export interface SourceBreakpoint {
+export interface BaseBreakpoint {
     id: string;
-    uri: string;
     enabled: boolean;
-    raw: DebugProtocol.SourceBreakpoint
+}
+
+export interface SourceBreakpoint extends BaseBreakpoint {
+    uri: string;
+    raw: DebugProtocol.SourceBreakpoint;
 }
 export namespace SourceBreakpoint {
     export function create(uri: URI, data: DebugProtocol.SourceBreakpoint, origin?: SourceBreakpoint): SourceBreakpoint {
@@ -47,5 +50,37 @@ export interface BreakpointMarker extends Marker<SourceBreakpoint> {
 export namespace BreakpointMarker {
     export function is(node: Marker<object>): node is BreakpointMarker {
         return 'kind' in node && node.kind === BREAKPOINT_KIND;
+    }
+}
+
+export interface ExceptionBreakpoint {
+    enabled: boolean;
+    raw: DebugProtocol.ExceptionBreakpointsFilter;
+}
+export namespace ExceptionBreakpoint {
+    export function create(data: DebugProtocol.ExceptionBreakpointsFilter, origin?: ExceptionBreakpoint): ExceptionBreakpoint {
+        return {
+            enabled: origin ? origin.enabled : false,
+            raw: {
+                ...(origin && origin.raw),
+                ...data
+            }
+        };
+    }
+}
+
+export interface FunctionBreakpoint extends BaseBreakpoint {
+    raw: DebugProtocol.FunctionBreakpoint;
+}
+export namespace FunctionBreakpoint {
+    export function create(data: DebugProtocol.FunctionBreakpoint, origin?: FunctionBreakpoint): FunctionBreakpoint {
+        return {
+            id: origin ? origin.id : UUID.uuid4(),
+            enabled: origin ? origin.enabled : true,
+            raw: {
+                ...(origin && origin.raw),
+                ...data
+            }
+        };
     }
 }

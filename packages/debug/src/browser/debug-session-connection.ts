@@ -14,7 +14,7 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  ********************************************************************************/
 
-// tslint:disable:no-any
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { DebugProtocol } from 'vscode-debugprotocol';
 import { Deferred } from '@theia/core/lib/common/promise-util';
@@ -180,7 +180,21 @@ export class DebugSessionConnection implements Disposable {
             arguments: args
         };
 
+        const onDispose = this.toDispose.push(Disposable.create(() => {
+            const pendingRequest = this.pendingRequests.get(request.seq);
+            if (pendingRequest) {
+                pendingRequest({
+                    type: 'response',
+                    request_seq: request.seq,
+                    command: request.command,
+                    seq: 0,
+                    success: false,
+                    message: 'debug session is closed'
+                });
+            }
+        }));
         this.pendingRequests.set(request.seq, (response: K) => {
+            onDispose.dispose();
             if (!response.success) {
                 result.reject(response);
             } else {

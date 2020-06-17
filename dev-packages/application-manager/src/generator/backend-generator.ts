@@ -27,6 +27,12 @@ export class BackendGenerator extends AbstractGenerator {
     protected compileServer(backendModules: Map<string, string>): string {
         return `// @ts-check
 require('reflect-metadata');
+
+// Patch electron version if missing, see https://github.com/eclipse-theia/theia/pull/7361#pullrequestreview-377065146
+if (typeof process.versions.electron === 'undefined' && typeof process.env.THEIA_ELECTRON_VERSION === 'string') {
+    process.versions.electron = process.env.THEIA_ELECTRON_VERSION;
+}
+
 const path = require('path');
 const express = require('express');
 const { Container } = require('inversify');
@@ -77,13 +83,13 @@ const main = require('@theia/core/lib/node/main');
 BackendApplicationConfigProvider.set(${this.prettyStringify(this.pck.props.backend.config)});
 
 const serverModule = require('./server');
-const address = main.start(serverModule());
-address.then(function (address) {
+const serverAddress = main.start(serverModule());
+serverAddress.then(function ({ port, address }) {
     if (process && process.send) {
-        process.send(address.port.toString());
+        process.send({ port, address });
     }
 });
-module.exports = address;
+module.exports = serverAddress;
 `;
     }
 

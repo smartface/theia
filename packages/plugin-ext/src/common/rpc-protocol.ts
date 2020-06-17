@@ -20,12 +20,12 @@
 // copied from https://github.com/Microsoft/vscode/blob/master/src/vs/workbench/services/extensions/node/rpcProtocol.ts
 // with small modifications
 
-/* tslint:disable:no-any */
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { Event } from '@theia/core/lib/common/event';
 import { DisposableCollection, Disposable } from '@theia/core/lib/common/disposable';
 import { Deferred } from '@theia/core/lib/common/promise-util';
-import VSCodeURI from 'vscode-uri';
+import { URI as VSCodeURI } from 'vscode-uri';
 import URI from '@theia/core/lib/common/uri';
 import { CancellationToken, CancellationTokenSource } from 'vscode-languageserver-protocol';
 import { Range, Position } from '../plugin/types-impl';
@@ -61,6 +61,20 @@ export function createProxyIdentifier<T>(identifier: string): ProxyIdentifier<T>
     return new ProxyIdentifier(false, identifier);
 }
 
+export interface ConnectionClosedError extends Error {
+    code: 'RPC_PROTOCOL_CLOSED'
+}
+export namespace ConnectionClosedError {
+    const code: ConnectionClosedError['code'] = 'RPC_PROTOCOL_CLOSED';
+    export function create(message: string = 'connection is closed'): ConnectionClosedError {
+        return Object.assign(new Error(message), { code });
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    export function is(error: any): error is ConnectionClosedError {
+        return !!error && typeof error === 'object' && 'code' in error && error['code'] === code;
+    }
+}
+
 export class RPCProtocolImpl implements RPCProtocol {
 
     private readonly locals = new Map<string, any>();
@@ -82,7 +96,7 @@ export class RPCProtocolImpl implements RPCProtocol {
         this.toDispose.push(Disposable.create(() => {
             this.proxies.clear();
             for (const reply of this.pendingRPCReplies.values()) {
-                reply.reject(new Error('connection is closed'));
+                reply.reject(ConnectionClosedError.create());
             }
             this.pendingRPCReplies.clear();
         }));
@@ -98,7 +112,7 @@ export class RPCProtocolImpl implements RPCProtocol {
 
     getProxy<T>(proxyId: ProxyIdentifier<T>): T {
         if (this.isDisposed) {
-            throw new Error('connection is closed');
+            throw ConnectionClosedError.create();
         }
         let proxy = this.proxies.get(proxyId.id);
         if (!proxy) {
@@ -110,7 +124,7 @@ export class RPCProtocolImpl implements RPCProtocol {
 
     set<T, R extends T>(identifier: ProxyIdentifier<T>, instance: R): R {
         if (this.isDisposed) {
-            throw new Error('connection is closed');
+            throw ConnectionClosedError.create();
         }
         this.locals.set(identifier.id, instance);
         if (Disposable.is(instance)) {
@@ -130,13 +144,12 @@ export class RPCProtocolImpl implements RPCProtocol {
                 return target[name];
             }
         };
-        // tslint:disable-next-line:no-null-keyword
         return new Proxy(Object.create(null), handler);
     }
 
     private remoteCall(proxyId: string, methodName: string, args: any[]): Promise<any> {
         if (this.isDisposed) {
-            return Promise.reject(new Error('connection is closed'));
+            return Promise.reject(ConnectionClosedError.create());
         }
         const cancellationToken: CancellationToken | undefined = args.length && CancellationToken.is(args[args.length - 1]) ? args.pop() : undefined;
         if (cancellationToken && cancellationToken.isCancellationRequested) {
@@ -203,7 +216,7 @@ export class RPCProtocolImpl implements RPCProtocol {
         const callId = msg.id;
         const proxyId = msg.proxyId;
         // convert `null` to `undefined`, since we don't use `null` in internal plugin APIs
-        const args = msg.args.map(arg => arg === null ? undefined : arg);
+        const args = msg.args.map(arg => arg === null ? undefined : arg); // eslint-disable-line no-null/no-null
 
         const addToken = args.length && args[args.length - 1] === 'add.cancellation.token' ? args.pop() : false;
         if (addToken) {
@@ -321,7 +334,7 @@ class RPCMultiplexer implements Disposable {
 
     public send(msg: string): void {
         if (this.toDispose.disposed) {
-            throw new Error('connection is closed');
+            throw ConnectionClosedError.create();
         }
         if (this.messagesToSend.length === 0) {
             if (typeof setImmediate !== 'undefined') {
@@ -379,7 +392,7 @@ class MessageFactory {
 /**
  * These functions are responsible for correct transferring objects via rpc channel.
  *
- * To reach that some specific kind of objects is converteed to json in some custom way
+ * To reach that some specific kind of objects is converted to json in some custom way
  * and then, after receiving, revived to objects again,
  * so there is feeling that object was transferred via rpc channel.
  *
@@ -388,7 +401,7 @@ class MessageFactory {
  */
 namespace ObjectsTransferrer {
 
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     export function replacer(key: string | undefined, value: any): any {
         if (value instanceof URI) {
             return {
@@ -424,7 +437,7 @@ namespace ObjectsTransferrer {
         return value;
     }
 
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     export function reviver(key: string | undefined, value: any): any {
         if (isSerializedObject(value)) {
             switch (value.$type) {
@@ -433,7 +446,7 @@ namespace ObjectsTransferrer {
                 case SerializedObjectType.VSCODE_URI:
                     return VSCodeURI.parse(value.data);
                 case SerializedObjectType.THEIA_RANGE:
-                    // tslint:disable-next-line:no-any
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     const obj: any = JSON.parse(value.data);
                     const start = new Position(obj.start.line, obj.start.character);
                     const end = new Position(obj.end.line, obj.end.character);
@@ -461,11 +474,13 @@ function isSerializedObject(obj: any): obj is SerializedObject {
     return obj && obj.$type !== undefined && obj.data !== undefined;
 }
 
-const enum MessageType {
+export const enum MessageType {
     Request = 1,
     Reply = 2,
     ReplyErr = 3,
-    Cancel = 4
+    Cancel = 4,
+    Terminate = 5,
+    Terminated = 6
 }
 
 class CancelMessage {

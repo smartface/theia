@@ -16,10 +16,10 @@
 
 import * as ws from 'ws';
 import * as url from 'url';
+import * as net from 'net';
 import * as http from 'http';
 import * as https from 'https';
 import { injectable, inject, named, postConstruct, interfaces } from 'inversify';
-// tslint:disable-next-line:no-implicit-dependencies
 import { MessageConnection } from 'vscode-jsonrpc';
 import { createWebSocketConnection } from 'vscode-ws-jsonrpc/lib/socket/connection';
 import { IConnection } from 'vscode-ws-jsonrpc/lib/server/connection';
@@ -27,7 +27,7 @@ import * as launch from 'vscode-ws-jsonrpc/lib/server/launch';
 import { ContributionProvider, ConnectionHandler, bindContributionProvider } from '../../common';
 import { WebSocketChannel } from '../../common/messaging/web-socket-channel';
 import { BackendApplicationContribution } from '../backend-application';
-import { MessagingService } from './messaging-service';
+import { MessagingService, WebSocketChannelConnection } from './messaging-service';
 import { ConsoleLogger } from './logger';
 import { ConnectionContainerModule } from './connection-container-module';
 
@@ -47,6 +47,7 @@ export class MessagingContribution implements BackendApplicationContribution, Me
     @inject(ContributionProvider) @named(MessagingService.Contribution)
     protected readonly contributions: ContributionProvider<MessagingService.Contribution>;
 
+    protected webSocketServer: ws.Server | undefined;
     protected readonly wsHandlers = new MessagingContribution.ConnectionHandlers<ws>();
     protected readonly channelHandlers = new MessagingContribution.ConnectionHandlers<WebSocketChannel>();
 
@@ -68,7 +69,7 @@ export class MessagingContribution implements BackendApplicationContribution, Me
     forward(spec: string, callback: (params: MessagingService.PathParams, connection: IConnection) => void): void {
         this.wsChannel(spec, (params, channel) => {
             const connection = launch.createWebSocketConnection(channel);
-            callback(params, connection);
+            callback(params, WebSocketChannelConnection.create(connection, channel));
         });
     }
 
@@ -82,23 +83,24 @@ export class MessagingContribution implements BackendApplicationContribution, Me
 
     protected checkAliveTimeout = 30000;
     onStart(server: http.Server | https.Server): void {
-        const wss = new ws.Server({
-            server,
+        this.webSocketServer = new ws.Server({
+            noServer: true,
             perMessageDeflate: {
                 // don't compress if a message is less than 256kb
                 threshold: 256 * 1024
             }
         });
+        server.on('upgrade', this.handleHttpUpgrade.bind(this));
         interface CheckAliveWS extends ws {
             alive: boolean;
         }
-        wss.on('connection', (socket: CheckAliveWS, request) => {
+        this.webSocketServer.on('connection', (socket: CheckAliveWS, request) => {
             socket.alive = true;
             socket.on('pong', () => socket.alive = true);
             this.handleConnection(socket, request);
         });
         setInterval(() => {
-            wss.clients.forEach((socket: CheckAliveWS) => {
+            this.webSocketServer!.clients.forEach((socket: CheckAliveWS) => {
                 if (socket.alive === false) {
                     socket.terminate();
                     return;
@@ -107,6 +109,15 @@ export class MessagingContribution implements BackendApplicationContribution, Me
                 socket.ping();
             });
         }, this.checkAliveTimeout);
+    }
+
+    /**
+     * Route HTTP upgrade requests to the WebSocket server.
+     */
+    protected handleHttpUpgrade(request: http.IncomingMessage, socket: net.Socket, head: Buffer): void {
+        this.webSocketServer!.handleUpgrade(request, socket, head, client => {
+            this.webSocketServer!.emit('connection', client, request);
+        });
     }
 
     protected handleConnection(socket: ws, request: http.IncomingMessage): void {

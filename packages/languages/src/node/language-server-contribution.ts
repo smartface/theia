@@ -26,6 +26,7 @@ import {
     IConnection
 } from 'vscode-ws-jsonrpc/lib/server';
 import { MaybePromise } from '@theia/core/lib/common';
+import { WebSocketChannelConnection } from '@theia/core/lib/node/messaging';
 import { LanguageContribution } from '../common';
 import { RawProcess, RawProcessFactory } from '@theia/process/lib/node/raw-process';
 import { ProcessManager } from '@theia/process/lib/node/process-manager';
@@ -37,7 +38,7 @@ export {
 
 export interface LanguageServerStartOptions {
     sessionId: string
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     parameters?: any
 }
 
@@ -61,6 +62,9 @@ export abstract class BaseLanguageServerContribution implements LanguageServerCo
     abstract start(clientConnection: IConnection, options: LanguageServerStartOptions): void;
     protected forward(clientConnection: IConnection, serverConnection: IConnection): void {
         forward(clientConnection, serverConnection, this.map.bind(this));
+        if (WebSocketChannelConnection.is(clientConnection)) {
+            serverConnection.onClose(() => clientConnection.channel.tryClose());
+        }
     }
 
     protected map(message: Message): Message {

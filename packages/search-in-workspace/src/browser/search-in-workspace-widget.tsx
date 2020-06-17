@@ -23,8 +23,8 @@ import * as ReactDOM from 'react-dom';
 import { Event, Emitter, Disposable } from '@theia/core/lib/common';
 import { WorkspaceService } from '@theia/workspace/lib/browser';
 import { SearchInWorkspaceContextKeyService } from './search-in-workspace-context-key-service';
-import { ProgressLocationService } from '@theia/core/lib/browser/progress-location-service';
-import { ProgressBar } from '@theia/core/lib/browser/progress-bar';
+import { CancellationTokenSource } from '@theia/core';
+import { ProgressBarFactory } from '@theia/core/lib/browser/progress-bar-factory';
 
 export interface SearchFieldState {
     className: string;
@@ -83,8 +83,8 @@ export class SearchInWorkspaceWidget extends BaseWidget implements StatefulWidge
     @inject(SearchInWorkspaceContextKeyService)
     protected readonly contextKeyService: SearchInWorkspaceContextKeyService;
 
-    @inject(ProgressLocationService)
-    protected readonly progressLocationService: ProgressLocationService;
+    @inject(ProgressBarFactory)
+    protected readonly progressBarFactory: ProgressBarFactory;
 
     @postConstruct()
     protected init(): void {
@@ -145,8 +145,7 @@ export class SearchInWorkspaceWidget extends BaseWidget implements StatefulWidge
 
         this.toDispose.push(this.resultTreeWidget);
 
-        const onProgress = this.progressLocationService.onProgress('search');
-        this.toDispose.push(new ProgressBar({ container: this.node, insertMode: 'prepend' }, onProgress));
+        this.toDispose.push(this.progressBarFactory({ container: this.node, insertMode: 'prepend', locationId: 'search' }));
     }
 
     storeState(): object {
@@ -163,7 +162,7 @@ export class SearchInWorkspaceWidget extends BaseWidget implements StatefulWidge
         };
     }
 
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     restoreState(oldState: any): void {
         this.matchCaseState = oldState.matchCaseState;
         this.wholeWordState = oldState.wholeWordState;
@@ -215,6 +214,10 @@ export class SearchInWorkspaceWidget extends BaseWidget implements StatefulWidge
     refresh(): void {
         this.resultTreeWidget.search(this.searchTerm, this.searchInWorkspaceOptions);
         this.update();
+    }
+
+    getCancelIndicator(): CancellationTokenSource | undefined {
+        return this.resultTreeWidget.cancelIndicator;
     }
 
     collapseAll(): void {
@@ -370,6 +373,7 @@ export class SearchInWorkspaceWidget extends BaseWidget implements StatefulWidge
     protected renderSearchField(): React.ReactNode {
         const input = <input
             id='search-input-field'
+            className='theia-input'
             title='Search'
             type='text'
             size={1}
@@ -411,6 +415,7 @@ export class SearchInWorkspaceWidget extends BaseWidget implements StatefulWidge
         return <div className={`replace-field${this.showReplaceField ? '' : ' hidden'}`}>
             <input
                 id='replace-input-field'
+                className='theia-input'
                 title='Replace'
                 type='text'
                 size={1}
@@ -503,6 +508,7 @@ export class SearchInWorkspaceWidget extends BaseWidget implements StatefulWidge
         return <div className='glob-field'>
             <div className='label'>{'files to ' + kind}</div>
             <input
+                className='theia-input'
                 type='text'
                 size={1}
                 defaultValue={value}

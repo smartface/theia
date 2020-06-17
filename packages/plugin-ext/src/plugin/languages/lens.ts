@@ -14,7 +14,7 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  ********************************************************************************/
 
-import URI from 'vscode-uri/lib/umd';
+import { URI } from 'vscode-uri';
 import * as theia from '@theia/plugin';
 import { DocumentsExtImpl } from '../documents';
 import { CodeLensSymbol } from '../../common/plugin-api-rpc-model';
@@ -55,7 +55,6 @@ export class CodeLensAdapter {
                         range: Converter.fromRange(lens.range)!,
                         command: this.commands.converter.toSafeCommand(lens.command, toDispose)
                     }, cacheId);
-                    // TODO: invalidate caches and dispose command handlers
                     this.cache.set(cacheId, lens);
                     this.disposables.set(cacheId, toDispose);
                     return lensSymbol;
@@ -88,5 +87,16 @@ export class CodeLensAdapter {
         }
         symbol.command = this.commands.converter.toSafeCommand(newLens.command ? newLens.command : CodeLensAdapter.BAD_CMD, disposables);
         return symbol;
+    }
+
+    releaseCodeLenses(ids: number[]): void {
+        ids.forEach(id => {
+            this.cache.delete(id);
+            const toDispose = this.disposables.get(id);
+            if (toDispose) {
+                toDispose.dispose();
+                this.disposables.delete(id);
+            }
+        });
     }
 }

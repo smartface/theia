@@ -14,7 +14,7 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  ********************************************************************************/
 
-// tslint:disable:no-any
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { MessageConnection, ResponseError } from 'vscode-jsonrpc';
 import { ApplicationError } from '../application-error';
@@ -29,6 +29,7 @@ export type JsonRpcServer<Client> = Disposable & {
      * to handle JSON-RPC messages from the remote server.
      */
     setClient(client: Client | undefined): void;
+    getClient?(): Client | undefined;
 };
 
 export interface JsonRpcConnectionEventEmitter {
@@ -219,6 +220,9 @@ export class JsonRpcProxyFactory<T extends object> implements ProxyHandler<T> {
             return (client: any) => {
                 this.target = client;
             };
+        }
+        if (p === 'getClient') {
+            return () => this.target;
         }
         if (p === 'onDidOpenConnection') {
             return this.onDidOpenConnectionEmitter.event;

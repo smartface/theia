@@ -40,7 +40,7 @@ export interface StatusBarEntry {
     className?: string;
     tooltip?: string;
     command?: string;
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     arguments?: any[];
     priority?: number;
     onclick?: (e: MouseEvent) => void;
@@ -110,8 +110,7 @@ export class StatusBarImpl extends ReactWidget implements StatusBar {
 
     protected internalSetBackgroundColor(color?: string): void {
         this.backgroundColor = color;
-        // tslint:disable-next-line:no-null-keyword
-        this.node.style.backgroundColor = this.backgroundColor ? this.backgroundColor : null;
+        this.node.style.backgroundColor = this.backgroundColor || '';
     }
 
     async setColor(color?: string): Promise<void> {

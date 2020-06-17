@@ -17,19 +17,17 @@
 import { interfaces } from 'inversify';
 import { RPCProtocol } from '../../common/rpc-protocol';
 import { OpenDialogOptionsMain, SaveDialogOptionsMain, DialogsMain, UploadDialogOptionsMain } from '../../common/plugin-api-rpc';
-import URI from '@theia/core/lib/common/uri';
-import { DirNode, OpenFileDialogProps, SaveFileDialogProps, OpenFileDialogFactory, SaveFileDialogFactory } from '@theia/filesystem/lib/browser';
+import { DirNode, OpenFileDialogProps, SaveFileDialogProps, OpenFileDialogFactory, SaveFileDialogFactory, SaveFileDialog } from '@theia/filesystem/lib/browser';
 import { WorkspaceService } from '@theia/workspace/lib/browser';
 import { FileSystem, FileStat } from '@theia/filesystem/lib/common';
-import { LabelProvider } from '@theia/core/lib/browser';
 import { UriSelection } from '@theia/core/lib/common/selection';
+import URI from '@theia/core/lib/common/uri';
 import { FileUploadService } from '@theia/filesystem/lib/browser/file-upload-service';
 
 export class DialogsMainImpl implements DialogsMain {
 
     private workspaceService: WorkspaceService;
     private fileSystem: FileSystem;
-    private labelProvider: LabelProvider;
 
     private openFileDialogFactory: OpenFileDialogFactory;
     private saveFileDialogFactory: SaveFileDialogFactory;
@@ -38,7 +36,6 @@ export class DialogsMainImpl implements DialogsMain {
     constructor(rpc: RPCProtocol, container: interfaces.Container) {
         this.workspaceService = container.get(WorkspaceService);
         this.fileSystem = container.get(FileSystem);
-        this.labelProvider = container.get(LabelProvider);
 
         this.openFileDialogFactory = container.get(OpenFileDialogFactory);
         this.saveFileDialogFactory = container.get(SaveFileDialogFactory);
@@ -51,6 +48,11 @@ export class DialogsMainImpl implements DialogsMain {
         // Try to use default URI as root
         if (defaultUri) {
             rootStat = await this.fileSystem.getFileStat(defaultUri);
+        }
+
+        // Try to use as root the parent folder of existing file URI/non existing URI
+        if (rootStat && !rootStat.isDirectory || !rootStat) {
+            rootStat = await this.fileSystem.getFileStat(new URI(defaultUri).parent.toString());
         }
 
         // Try to use workspace service root if there is no preconfigured URI
@@ -75,10 +77,7 @@ export class DialogsMainImpl implements DialogsMain {
         }
 
         // Take the info for root node
-        const rootUri = new URI(rootStat.uri);
-        const name = this.labelProvider.getName(rootUri);
-        const icon = await this.labelProvider.getIcon(rootUri);
-        const rootNode = DirNode.createRoot(rootStat, name, icon);
+        const rootNode = DirNode.createRoot(rootStat);
 
         try {
             // Determine proper title for the dialog
@@ -127,27 +126,34 @@ export class DialogsMainImpl implements DialogsMain {
     async $showSaveDialog(options: SaveDialogOptionsMain): Promise<string | undefined> {
         const rootStat = await this.getRootUri(options.defaultUri ? options.defaultUri : undefined);
 
-        // Fail if root not fount
+        // Fail if root not found
         if (!rootStat) {
             throw new Error('Unable to find the rootStat');
         }
 
         // Take the info for root node
-        const rootUri = new URI(rootStat.uri);
-        const name = this.labelProvider.getName(rootUri);
-        const icon = await this.labelProvider.getIcon(rootUri);
-        const rootNode = DirNode.createRoot(rootStat, name, icon);
+        const rootNode = DirNode.createRoot(rootStat);
+
+        // File name field should be empty unless the URI is a file
+        let fileNameValue = '';
+        if (options.defaultUri) {
+            const defaultURIStat = await this.fileSystem.getFileStat(options.defaultUri);
+            if (defaultURIStat && !defaultURIStat.isDirectory || !defaultURIStat) {
+                fileNameValue = new URI(options.defaultUri).path.base;
+            }
+        }
 
         try {
             // Create save file dialog props
             const dialogProps = {
                 title: 'Save',
                 saveLabel: options.saveLabel,
-                filters: options.filters
+                filters: options.filters,
+                inputValue: fileNameValue
             } as SaveFileDialogProps;
 
             // Show save file dialog
-            const dialog = this.saveFileDialogFactory(dialogProps);
+            const dialog: SaveFileDialog = this.saveFileDialogFactory(dialogProps);
             dialog.model.navigateTo(rootNode);
             const result = await dialog.open();
 

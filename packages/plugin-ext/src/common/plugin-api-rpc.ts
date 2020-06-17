@@ -14,7 +14,7 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  ********************************************************************************/
 
-/* tslint:disable:no-any */
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { createProxyIdentifier, ProxyIdentifier, RPCProtocol } from './rpc-protocol';
 import * as theia from '@theia/plugin';
@@ -30,7 +30,7 @@ import {
     QuickInputButton
 } from '../plugin/types-impl';
 import { UriComponents } from './uri-components';
-import { ConfigurationTarget } from '../plugin/types-impl';
+import { ConfigurationTarget, FileType, FileStat } from '../plugin/types-impl';
 import {
     SerializedDocumentFilter,
     CompletionContext,
@@ -44,7 +44,6 @@ import {
     DocumentHighlight,
     FormattingOptions,
     Definition,
-    DefinitionLink,
     DocumentLink,
     CodeLensSymbol,
     Command,
@@ -59,13 +58,17 @@ import {
     Breakpoint,
     ColorPresentation,
     RenameLocation,
-    FileMoveEvent,
-    FileWillMoveEvent,
     SignatureHelpContext,
     CodeAction,
     CodeActionContext,
     FoldingContext,
-    FoldingRange
+    FoldingRange,
+    SelectionRange,
+    CallHierarchyDefinition,
+    CallHierarchyReference,
+    CreateFilesEventDTO,
+    RenameFilesEventDTO,
+    DeleteFilesEventDTO,
 } from './plugin-api-rpc-model';
 import { ExtPluginApi } from './plugin-ext-api-contribution';
 import { KeysToAnyValues, KeysToKeysToAnyValue } from './types';
@@ -75,7 +78,6 @@ import { DebugProtocol } from 'vscode-debugprotocol';
 import { SymbolInformation } from 'vscode-languageserver-types';
 import { ArgumentProcessor } from '../plugin/command-registry';
 import { MaybePromise } from '@theia/core/lib/common/types';
-import { QuickOpenItem, QuickOpenItemOptions } from '@theia/core/lib/common/quick-open-model';
 import { QuickTitleButton } from '@theia/core/lib/common/quick-open-model';
 
 export interface PreferenceData {
@@ -83,7 +85,7 @@ export interface PreferenceData {
 }
 
 export interface Plugin {
-    pluginPath: string;
+    pluginPath: string | undefined;
     pluginFolder: string;
     model: PluginModel;
     rawModel: PluginPackage;
@@ -93,13 +95,14 @@ export interface Plugin {
 export interface ConfigStorage {
     hostLogPath: string;
     hostStoragePath?: string;
-    hostGlobalStoragePath?: string;
+    hostGlobalStoragePath: string;
 }
 
 export interface EnvInit {
     queryParams: QueryParameters;
     language: string;
     shell: string;
+    appName: string;
 }
 
 export interface PluginAPI {
@@ -137,6 +140,7 @@ export const emptyPlugin: Plugin = {
             version: 'empty'
         },
         packagePath: 'empty',
+        packageUri: 'empty',
         entryPoint: {
 
         }
@@ -189,6 +193,8 @@ export interface PluginManagerExt {
     $updateStoragePath(path: string | undefined): Promise<void>;
 
     $activateByEvent(event: string): Promise<void>;
+
+    $activatePlugin(id: string): Promise<void>;
 }
 
 export interface CommandRegistryMain {
@@ -263,7 +269,7 @@ export interface TerminalServiceMain {
     $hide(id: string): void;
 
     /**
-     * Distroy terminal.
+     * Destroy terminal.
      * @param id - terminal id.
      */
     $dispose(id: string): void;
@@ -287,7 +293,6 @@ export interface PickOptions {
 
 export interface PickOpenItem {
     handle: number;
-    id?: string;
     label: string;
     description?: string;
     detail?: string;
@@ -307,8 +312,14 @@ export interface MainMessageOptions {
     onCloseActionHandle?: number
 }
 
+export interface MainMessageItem {
+    title: string,
+    isCloseAffordance?: boolean;
+    handle?: number
+}
+
 export interface MessageRegistryMain {
-    $showMessage(type: MainMessageType, message: string, options: MainMessageOptions, actions: string[]): PromiseLike<number | undefined>;
+    $showMessage(type: MainMessageType, message: string, options: MainMessageOptions, actions: MainMessageItem[]): PromiseLike<number | undefined>;
 }
 
 export interface StatusBarMessageRegistryMain {
@@ -331,8 +342,8 @@ export interface QuickOpenExt {
     $acceptDidChangeValue(quickInputNumber: number, changedValue: string): Promise<void>;
     $acceptOnDidHide(quickInputNumber: number): Promise<void>;
     $acceptOnDidTriggerButton(quickInputNumber: number, btn: QuickTitleButton): Promise<void>;
-    $acceptDidChangeActive(quickInputNumber: number, changedItems: QuickOpenItem<QuickOpenItemOptions>[]): Promise<void>;
-    $acceptDidChangeSelection(quickInputNumber: number, selection: string): Promise<void>;
+    $onDidChangeActive(sessionId: number, handles: number[]): void;
+    $onDidChangeSelection(sessionId: number, handles: number[]): void;
 }
 
 /**
@@ -438,7 +449,7 @@ export interface QuickInputTitleButtonHandle extends QuickTitleButton {
 }
 
 export interface TransferQuickInput {
-    quickInputIndex: number;
+    id: number;
     title: string | undefined;
     step: number | undefined;
     totalSteps: number | undefined;
@@ -470,10 +481,9 @@ export interface TransferQuickPick<T extends theia.QuickPickItem> extends Transf
 }
 
 export interface QuickOpenMain {
-    $show(options: PickOptions): Promise<number | number[]>;
+    $show(options: PickOptions, token: CancellationToken): Promise<number | number[]>;
     $setItems(items: PickOpenItem[]): Promise<any>;
-    $setError(error: Error): Promise<any>;
-    $input(options: theia.InputBoxOptions, validateInput: boolean): Promise<string | undefined>;
+    $input(options: theia.InputBoxOptions, validateInput: boolean, token: CancellationToken): Promise<string | undefined>;
     $hide(): void;
     $showInputBox(inputBox: TransferInputBox, validateInput: boolean): void;
     $showCustomQuickPick<T extends theia.QuickPickItem>(inputBox: TransferQuickPick<T>): void;
@@ -497,8 +507,13 @@ export interface WorkspaceExt {
     $onWorkspaceFoldersChanged(event: WorkspaceRootsChangeEvent): void;
     $provideTextDocumentContent(uri: string): Promise<string | undefined>;
     $fileChanged(event: FileChangeEvent): void;
-    $onFileRename(event: FileMoveEvent): void;
-    $onWillRename(event: FileWillMoveEvent): Promise<any>;
+
+    $onWillCreateFiles(event: CreateFilesEventDTO): Promise<any[]>;
+    $onDidCreateFiles(event: CreateFilesEventDTO): void;
+    $onWillRenameFiles(event: RenameFilesEventDTO): Promise<any[]>;
+    $onDidRenameFiles(event: RenameFilesEventDTO): void;
+    $onWillDeleteFiles(event: DeleteFilesEventDTO): Promise<any[]>;
+    $onDidDeleteFiles(event: DeleteFilesEventDTO): void;
 }
 
 export interface DialogsMain {
@@ -507,11 +522,19 @@ export interface DialogsMain {
     $showUploadDialog(options: UploadDialogOptionsMain): Promise<string[] | undefined>;
 }
 
+export interface TreeViewRevealOptions {
+    select: boolean
+    focus: boolean
+    expand: boolean | number
+}
+
 export interface TreeViewsMain {
     $registerTreeDataProvider(treeViewId: string): void;
     $unregisterTreeDataProvider(treeViewId: string): void;
-    $refresh(treeViewId: string): void;
-    $reveal(treeViewId: string, treeItemId: string): Promise<any>;
+    $refresh(treeViewId: string): Promise<void>;
+    $reveal(treeViewId: string, treeItemId: string, options: TreeViewRevealOptions): Promise<any>;
+    $setMessage(treeViewId: string, message: string): void;
+    $setTitle(treeViewId: string, title: string): void;
 }
 
 export interface TreeViewsExt {
@@ -527,7 +550,7 @@ export interface TreeViewItem {
 
     label: string;
 
-    description?: string;
+    description?: string | boolean;
 
     /* font-awesome icon for compatibility */
     icon?: string;
@@ -809,7 +832,7 @@ export interface TextEditorsExt {
 }
 
 export interface SingleEditOperation {
-    range: Range;
+    range?: Range;
     text?: string;
     forceMoveMarkers?: boolean;
 }
@@ -951,7 +974,12 @@ export interface EditorsAndDocumentsDelta {
     addedDocuments?: ModelAddedData[];
     removedEditors?: string[];
     addedEditors?: TextEditorAddData[];
-    newActiveEditor?: string;
+    /**
+     * undefined means no changes
+     * null means no active
+     * string means id of active
+     */
+    newActiveEditor?: string | null;
 }
 
 export interface EditorsAndDocumentsExt {
@@ -1122,8 +1150,8 @@ export interface TaskDto {
     type: string;
     label: string;
     source?: string;
-    scope?: string;
-    // tslint:disable-next-line:no-any
+    scope: string | number;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     [key: string]: any;
 }
 
@@ -1144,12 +1172,12 @@ export interface PluginInfo {
 export interface LanguagesExt {
     $provideCompletionItems(handle: number, resource: UriComponents, position: Position,
         context: CompletionContext, token: CancellationToken): Promise<CompletionResultDto | undefined>;
-    $resolveCompletionItem(handle: number, resource: UriComponents, position: Position, completion: Completion, token: CancellationToken): Promise<Completion>;
+    $resolveCompletionItem(handle: number, parentId: number, id: number, token: CancellationToken): Promise<Completion | undefined>;
     $releaseCompletionItems(handle: number, id: number): void;
-    $provideImplementation(handle: number, resource: UriComponents, position: Position, token: CancellationToken): Promise<Definition | DefinitionLink[] | undefined>;
-    $provideTypeDefinition(handle: number, resource: UriComponents, position: Position, token: CancellationToken): Promise<Definition | DefinitionLink[] | undefined>;
-    $provideDefinition(handle: number, resource: UriComponents, position: Position, token: CancellationToken): Promise<Definition | DefinitionLink[] | undefined>;
-    $provideDeclaration(handle: number, resource: UriComponents, position: Position, token: CancellationToken): Promise<Definition | DefinitionLink[] | undefined>;
+    $provideImplementation(handle: number, resource: UriComponents, position: Position, token: CancellationToken): Promise<Definition | undefined>;
+    $provideTypeDefinition(handle: number, resource: UriComponents, position: Position, token: CancellationToken): Promise<Definition | undefined>;
+    $provideDefinition(handle: number, resource: UriComponents, position: Position, token: CancellationToken): Promise<Definition | undefined>;
+    $provideDeclaration(handle: number, resource: UriComponents, position: Position, token: CancellationToken): Promise<Definition | undefined>;
     $provideReferences(handle: number, resource: UriComponents, position: Position, context: ReferenceContext, token: CancellationToken): Promise<Location[] | undefined>;
     $provideSignatureHelp(
         handle: number, resource: UriComponents, position: Position, context: SignatureHelpContext, token: CancellationToken
@@ -1171,8 +1199,10 @@ export interface LanguagesExt {
     ): Promise<TextEdit[] | undefined>;
     $provideDocumentLinks(handle: number, resource: UriComponents, token: CancellationToken): Promise<DocumentLink[] | undefined>;
     $resolveDocumentLink(handle: number, link: DocumentLink, token: CancellationToken): Promise<DocumentLink | undefined>;
+    $releaseDocumentLinks(handle: number, ids: number[]): void;
     $provideCodeLenses(handle: number, resource: UriComponents, token: CancellationToken): Promise<CodeLensSymbol[] | undefined>;
     $resolveCodeLens(handle: number, resource: UriComponents, symbol: CodeLensSymbol, token: CancellationToken): Promise<CodeLensSymbol | undefined>;
+    $releaseCodeLenses(handle: number, ids: number[]): void;
     $provideCodeActions(
         handle: number,
         resource: UriComponents,
@@ -1182,17 +1212,20 @@ export interface LanguagesExt {
     ): Promise<CodeAction[] | undefined>;
     $provideDocumentSymbols(handle: number, resource: UriComponents, token: CancellationToken): Promise<DocumentSymbol[] | undefined>;
     $provideWorkspaceSymbols(handle: number, query: string, token: CancellationToken): PromiseLike<SymbolInformation[]>;
-    $resolveWorkspaceSymbol(handle: number, symbol: SymbolInformation, token: CancellationToken): PromiseLike<SymbolInformation>;
+    $resolveWorkspaceSymbol(handle: number, symbol: SymbolInformation, token: CancellationToken): PromiseLike<SymbolInformation | undefined>;
     $provideFoldingRange(
         handle: number,
         resource: UriComponents,
         context: FoldingContext,
         token: CancellationToken
     ): PromiseLike<FoldingRange[] | undefined>;
+    $provideSelectionRanges(handle: number, resource: UriComponents, positions: Position[], token: CancellationToken): PromiseLike<SelectionRange[][]>;
     $provideDocumentColors(handle: number, resource: UriComponents, token: CancellationToken): PromiseLike<RawColorInfo[]>;
     $provideColorPresentations(handle: number, resource: UriComponents, colorInfo: RawColorInfo, token: CancellationToken): PromiseLike<ColorPresentation[]>;
     $provideRenameEdits(handle: number, resource: UriComponents, position: Position, newName: string, token: CancellationToken): PromiseLike<WorkspaceEditDto | undefined>;
     $resolveRenameLocation(handle: number, resource: UriComponents, position: Position, token: CancellationToken): PromiseLike<RenameLocation | undefined>;
+    $provideRootDefinition(handle: number, resource: UriComponents, location: Position, token: CancellationToken): Promise<CallHierarchyDefinition | undefined>;
+    $provideCallers(handle: number, definition: CallHierarchyDefinition, token: CancellationToken): Promise<CallHierarchyReference[] | undefined>;
 }
 
 export const LanguagesMainFactory = Symbol('LanguagesMainFactory');
@@ -1232,8 +1265,10 @@ export interface LanguagesMain {
     $registerOutlineSupport(handle: number, pluginInfo: PluginInfo, selector: SerializedDocumentFilter[]): void;
     $registerWorkspaceSymbolProvider(handle: number, pluginInfo: PluginInfo): void;
     $registerFoldingRangeProvider(handle: number, pluginInfo: PluginInfo, selector: SerializedDocumentFilter[]): void;
+    $registerSelectionRangeProvider(handle: number, pluginInfo: PluginInfo, selector: SerializedDocumentFilter[]): void;
     $registerDocumentColorProvider(handle: number, pluginInfo: PluginInfo, selector: SerializedDocumentFilter[]): void;
-    $registerRenameProvider(handle: number, pluginInfo: PluginInfo, selector: SerializedDocumentFilter[], supportsResoveInitialValues: boolean): void;
+    $registerRenameProvider(handle: number, pluginInfo: PluginInfo, selector: SerializedDocumentFilter[], supportsResolveInitialValues: boolean): void;
+    $registerCallHierarchyProvider(handle: number, selector: SerializedDocumentFilter[]): void;
 }
 
 export interface WebviewInitData {
@@ -1289,7 +1324,7 @@ export interface StorageExt {
 
 export interface DebugExt {
     $onSessionCustomEvent(sessionId: string, event: string, body?: any): void;
-    $breakpointsDidChange(all: Breakpoint[], added: Breakpoint[], removed: Breakpoint[], changed: Breakpoint[]): void;
+    $breakpointsDidChange(added: Breakpoint[], removed: string[], changed: Breakpoint[]): void;
     $sessionDidCreate(sessionId: string): void;
     $sessionDidDestroy(sessionId: string): void;
     $sessionDidChange(sessionId: string | undefined): void;
@@ -1306,17 +1341,31 @@ export interface DebugMain {
     $registerDebuggerContribution(description: DebuggerDescription): Promise<void>;
     $unregisterDebuggerConfiguration(debugType: string): Promise<void>;
     $addBreakpoints(breakpoints: Breakpoint[]): Promise<void>;
-    $removeBreakpoints(breakpoints: Breakpoint[]): Promise<void>;
+    $removeBreakpoints(breakpoints: string[]): Promise<void>;
     $startDebugging(folder: theia.WorkspaceFolder | undefined, nameOrConfiguration: string | theia.DebugConfiguration): Promise<boolean>;
     $customRequest(sessionId: string, command: string, args?: any): Promise<DebugProtocol.Response>;
 }
 
 export interface FileSystemExt {
+    $stat(handle: number, resource: UriComponents): Promise<FileStat>;
+    $readDirectory(handle: number, resource: UriComponents): Promise<[string, FileType][]>;
+    $createDirectory(handle: number, uri: UriComponents): Promise<void>;
     $readFile(handle: number, resource: UriComponents, options?: { encoding?: string }): Promise<string>;
     $writeFile(handle: number, resource: UriComponents, content: string, options?: { encoding?: string }): Promise<void>;
+    $delete(handle: number, resource: UriComponents, options: { recursive: boolean }): Promise<void>;
+    $rename(handle: number, source: UriComponents, target: UriComponents, options: { overwrite: boolean }): Promise<void>;
+    $copy(handle: number, source: UriComponents, target: UriComponents, options: { overwrite: boolean }): Promise<void>;
 }
 
 export interface FileSystemMain {
+    $stat(uri: UriComponents): Promise<FileStat>
+    $readDirectory(uri: UriComponents): Promise<[string, FileType][]>;
+    $createDirectory(uri: UriComponents): Promise<void>
+    $readFile(uri: UriComponents): Promise<string>;
+    $writeFile(uri: UriComponents, content: string): Promise<void>;
+    $delete(uri: UriComponents, options: { recursive: boolean }): Promise<void>;
+    $rename(source: UriComponents, target: UriComponents, options: { overwrite: boolean }): Promise<void>;
+    $copy(source: UriComponents, target: UriComponents, options: { overwrite: boolean }): Promise<void>;
     $registerFileSystemProvider(handle: number, scheme: string): void;
     $unregisterProvider(handle: number): void;
 }

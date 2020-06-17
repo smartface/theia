@@ -14,32 +14,45 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  ********************************************************************************/
 
-// tslint:disable:no-any
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
+import * as electron from 'electron';
 import { inject, injectable } from 'inversify';
-import { MenuPath } from '../../common';
-import { ContextMenuRenderer, Anchor, RenderContextMenuOptions } from '../../browser';
+import { ContextMenuRenderer, RenderContextMenuOptions, ContextMenuAccess } from '../../browser';
 import { ElectronMainMenuFactory } from './electron-main-menu-factory';
 import { ContextMenuContext } from '../../browser/menu/context-menu-context';
 
+export class ElectronContextMenuAccess extends ContextMenuAccess {
+    constructor(
+        public readonly menu: electron.Menu
+    ) {
+        super({
+            dispose: () => menu.closePopup()
+        });
+    }
+}
+
 @injectable()
-export class ElectronContextMenuRenderer implements ContextMenuRenderer {
+export class ElectronContextMenuRenderer extends ContextMenuRenderer {
 
     @inject(ContextMenuContext)
     protected readonly context: ContextMenuContext;
 
     constructor(@inject(ElectronMainMenuFactory) private menuFactory: ElectronMainMenuFactory) {
+        super();
     }
 
-    render(arg: MenuPath | RenderContextMenuOptions, arg2?: Anchor, arg3?: () => void): void {
-        const { menuPath, args, onHide } = RenderContextMenuOptions.resolve(arg, arg2, arg3);
+    protected doRender({ menuPath, anchor, args, onHide }: RenderContextMenuOptions): ElectronContextMenuAccess {
         const menu = this.menuFactory.createContextMenu(menuPath, args);
-        menu.popup({});
+        const { x, y } = anchor instanceof MouseEvent ? { x: anchor.clientX, y: anchor.clientY } : anchor!;
+        // x and y values must be Ints or else there is a conversion error
+        menu.popup({ x: Math.round(x), y: Math.round(y) });
         // native context menu stops the event loop, so there is no keyboard events
         this.context.resetAltPressed();
         if (onHide) {
             menu.once('menu-will-close', () => onHide());
         }
+        return new ElectronContextMenuAccess(menu);
     }
 
 }

@@ -14,9 +14,9 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  ********************************************************************************/
 
-// tslint:disable:no-any
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
-import CodeUri from 'vscode-uri';
+import { URI as CodeUri } from 'vscode-uri';
 import { injectable, inject } from 'inversify';
 import { MenuPath, ILogger, CommandRegistry, Command, Mutable, MenuAction, SelectionService, CommandHandler, Disposable, DisposableCollection } from '@theia/core';
 import { EDITOR_CONTEXT_MENU, EditorWidget } from '@theia/editor/lib/browser';
@@ -25,12 +25,13 @@ import { Emitter } from '@theia/core/lib/common/event';
 import { TabBarToolbarRegistry, TabBarToolbarItem } from '@theia/core/lib/browser/shell/tab-bar-toolbar';
 import { NAVIGATOR_CONTEXT_MENU } from '@theia/navigator/lib/browser/navigator-contribution';
 import { QuickCommandService } from '@theia/core/lib/browser/quick-open/quick-command-service';
-import { VIEW_ITEM_CONTEXT_MENU, TreeViewWidget, VIEW_ITEM_INLINE_MNUE } from '../view/tree-view-widget';
-import { PluginContribution, Menu, ScmCommandArg, TreeViewSelection } from '../../../common';
+import { VIEW_ITEM_CONTEXT_MENU, TreeViewWidget, VIEW_ITEM_INLINE_MENU } from '../view/tree-view-widget';
+import { DeployedPlugin, Menu, ScmCommandArg, TreeViewSelection } from '../../../common';
 import { DebugStackFramesWidget } from '@theia/debug/lib/browser/view/debug-stack-frames-widget';
 import { DebugThreadsWidget } from '@theia/debug/lib/browser/view/debug-threads-widget';
 import { TreeWidgetSelection } from '@theia/core/lib/browser/tree/tree-widget-selection';
 import { ScmWidget } from '@theia/scm/lib/browser/scm-widget';
+import { ScmTreeWidget } from '@theia/scm/lib/browser/scm-tree-widget';
 import { ScmService } from '@theia/scm/lib/browser/scm-service';
 import { ScmRepository } from '@theia/scm/lib/browser/scm-repository';
 import { PluginScmProvider, PluginScmResourceGroup, PluginScmResource } from '../scm-main';
@@ -85,8 +86,8 @@ export class MenusContributionPointHandler {
     @inject(ContextKeyService)
     protected readonly contextKeyService: ContextKeyService;
 
-    handle(contributions: PluginContribution): Disposable {
-        const allMenus = contributions.menus;
+    handle(plugin: DeployedPlugin): Disposable {
+        const allMenus = plugin.contributes && plugin.contributes.menus;
         if (!allMenus) {
             return Disposable.NULL;
         }
@@ -121,7 +122,7 @@ export class MenusContributionPointHandler {
             } else if (location === 'view/item/context') {
                 for (const menu of allMenus[location]) {
                     const inline = menu.group && /^inline/.test(menu.group) || false;
-                    const menuPath = inline ? VIEW_ITEM_INLINE_MNUE : VIEW_ITEM_CONTEXT_MENU;
+                    const menuPath = inline ? VIEW_ITEM_INLINE_MENU : VIEW_ITEM_CONTEXT_MENU;
                     toDispose.push(this.registerTreeMenuAction(menuPath, menu));
                 }
             } else if (location === 'scm/title') {
@@ -131,13 +132,19 @@ export class MenusContributionPointHandler {
             } else if (location === 'scm/resourceGroup/context') {
                 for (const menu of allMenus[location]) {
                     const inline = menu.group && /^inline/.test(menu.group) || false;
-                    const menuPath = inline ? ScmWidget.RESOURCE_GROUP_INLINE_MENU : ScmWidget.RESOURCE_GROUP_CONTEXT_MENU;
+                    const menuPath = inline ? ScmTreeWidget.RESOURCE_GROUP_INLINE_MENU : ScmTreeWidget.RESOURCE_GROUP_CONTEXT_MENU;
+                    toDispose.push(this.registerScmMenuAction(menuPath, menu));
+                }
+            } else if (location === 'scm/resourceFolder/context') {
+                for (const menu of allMenus[location]) {
+                    const inline = menu.group && /^inline/.test(menu.group) || false;
+                    const menuPath = inline ? ScmTreeWidget.RESOURCE_FOLDER_INLINE_MENU : ScmTreeWidget.RESOURCE_FOLDER_CONTEXT_MENU;
                     toDispose.push(this.registerScmMenuAction(menuPath, menu));
                 }
             } else if (location === 'scm/resourceState/context') {
                 for (const menu of allMenus[location]) {
                     const inline = menu.group && /^inline/.test(menu.group) || false;
-                    const menuPath = inline ? ScmWidget.RESOURCE_INLINE_MENU : ScmWidget.RESOURCE_CONTEXT_MENU;
+                    const menuPath = inline ? ScmTreeWidget.RESOURCE_INLINE_MENU : ScmTreeWidget.RESOURCE_CONTEXT_MENU;
                     toDispose.push(this.registerScmMenuAction(menuPath, menu));
                 }
             } else if (location === 'debug/callstack/context') {
@@ -153,7 +160,7 @@ export class MenusContributionPointHandler {
             } else if (allMenus.hasOwnProperty(location)) {
                 const menuPaths = MenusContributionPointHandler.parseMenuPaths(location);
                 if (!menuPaths.length) {
-                    this.logger.warn(`Plugin contributes items to a menu with invalid identifier: ${location}`);
+                    this.logger.warn(`'${plugin.metadata.model.id}' plugin contributes items to a menu with invalid identifier: ${location}`);
                     continue;
                 }
                 const menus = allMenus[location];

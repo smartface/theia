@@ -19,8 +19,8 @@ import '../../../src/main/browser/style/index.css';
 
 import { ContainerModule } from 'inversify';
 import {
-    FrontendApplicationContribution, FrontendApplication, WidgetFactory, bindViewContribution,
-    ViewContainerIdentifier, ViewContainer, createTreeContainer, TreeImpl, TreeWidget, TreeModelImpl, OpenHandler
+    FrontendApplicationContribution, WidgetFactory, bindViewContribution,
+    ViewContainerIdentifier, ViewContainer, createTreeContainer, TreeImpl, TreeWidget, TreeModelImpl, LabelProviderContribution
 } from '@theia/core/lib/browser';
 import { MaybePromise, CommandContribution, ResourceResolver, bindContributionProvider } from '@theia/core/lib/common';
 import { WebSocketConnectionProvider } from '@theia/core/lib/browser/messaging';
@@ -33,7 +33,6 @@ import { ModalNotification } from './dialogs/modal-notification';
 import { PluginWidget } from './plugin-ext-widget';
 import { PluginFrontendViewContribution } from './plugin-frontend-view-contribution';
 import { PluginExtDeployCommandService } from './plugin-ext-deploy-command';
-import { TextEditorService } from './text-editor-service';
 import { EditorModelService } from './text-editor-model-service';
 import { UntitledResourceResolver } from './editor/untitled-resource';
 import { MenusContributionPointHandler } from './menus/menus-contribution-handler';
@@ -63,13 +62,15 @@ import { LanguagesMainFactory, OutputChannelRegistryFactory } from '../../common
 import { LanguagesMainImpl } from './languages-main';
 import { OutputChannelRegistryMainImpl } from './output-channel-registry-main';
 import { InPluginFileSystemWatcherManager } from './in-plugin-filesystem-watcher-manager';
-import { WebviewWidget, WebviewWidgetIdentifier, WebviewWidgetExternalEndpoint } from './webview/webview';
+import { WebviewWidget } from './webview/webview';
 import { WebviewEnvironment } from './webview/webview-environment';
 import { WebviewThemeDataProvider } from './webview/webview-theme-data-provider';
-import { PluginCommandOpenHandler } from './plugin-command-open-handler';
 import { bindWebviewPreferences } from './webview/webview-preferences';
 import { WebviewResourceLoader, WebviewResourceLoaderPath } from '../common/webview-protocol';
 import { WebviewResourceCache } from './webview/webview-resource-cache';
+import { PluginIconThemeService, PluginIconThemeFactory, PluginIconThemeDefinition, PluginIconTheme } from './plugin-icon-theme-service';
+import { PluginTreeViewNodeLabelProvider } from './view/plugin-tree-view-node-label-provider';
+import { WebviewWidgetFactory } from './webview/webview-widget-factory';
 
 export default new ContainerModule((bind, unbind, isBound, rebind) => {
 
@@ -97,14 +98,13 @@ export default new ContainerModule((bind, unbind, isBound, rebind) => {
     bind(PluginApiFrontendContribution).toSelf().inSingletonScope();
     bind(CommandContribution).toService(PluginApiFrontendContribution);
 
-    bind(TextEditorService).toSelf().inSingletonScope();
     bind(EditorModelService).toSelf().inSingletonScope();
 
     bind(UntitledResourceResolver).toSelf().inSingletonScope();
     bind(ResourceResolver).toService(UntitledResourceResolver);
 
     bind(FrontendApplicationContribution).toDynamicValue(ctx => ({
-        onStart(app: FrontendApplication): MaybePromise<void> {
+        onStart(): MaybePromise<void> {
             ctx.container.get(HostedPluginSupport).onStart(ctx.container);
         }
     }));
@@ -135,6 +135,8 @@ export default new ContainerModule((bind, unbind, isBound, rebind) => {
 
     bind(ViewContextKeyService).toSelf().inSingletonScope();
 
+    bind(PluginTreeViewNodeLabelProvider).toSelf().inSingletonScope();
+    bind(LabelProviderContribution).toService(PluginTreeViewNodeLabelProvider);
     bind(WidgetFactory).toDynamicValue(({ container }) => ({
         id: PLUGIN_VIEW_DATA_FACTORY_ID,
         createWidget: (identifier: TreeViewWidgetIdentifier) => {
@@ -153,9 +155,6 @@ export default new ContainerModule((bind, unbind, isBound, rebind) => {
         }
     })).inSingletonScope();
 
-    bind(PluginCommandOpenHandler).toSelf().inSingletonScope();
-    bind(OpenHandler).toService(PluginCommandOpenHandler);
-
     bindWebviewPreferences(bind);
     bind(WebviewEnvironment).toSelf().inSingletonScope();
     bind(WebviewThemeDataProvider).toSelf().inSingletonScope();
@@ -164,21 +163,8 @@ export default new ContainerModule((bind, unbind, isBound, rebind) => {
     ).inSingletonScope();
     bind(WebviewResourceCache).toSelf().inSingletonScope();
     bind(WebviewWidget).toSelf();
-    bind(WidgetFactory).toDynamicValue(({ container }) => ({
-        id: WebviewWidget.FACTORY_ID,
-        createWidget: async (identifier: WebviewWidgetIdentifier) => {
-            const externalEndpoint = await container.get(WebviewEnvironment).externalEndpoint();
-            let endpoint = externalEndpoint.replace('{{uuid}}', identifier.id);
-            if (endpoint[endpoint.length - 1] === '/') {
-                endpoint = endpoint.slice(0, endpoint.length - 1);
-            }
-
-            const child = container.createChild();
-            child.bind(WebviewWidgetIdentifier).toConstantValue(identifier);
-            child.bind(WebviewWidgetExternalEndpoint).toConstantValue(endpoint);
-            return child.get(WebviewWidget);
-        }
-    })).inSingletonScope();
+    bind(WebviewWidgetFactory).toDynamicValue(ctx => new WebviewWidgetFactory(ctx.container)).inSingletonScope();
+    bind(WidgetFactory).toService(WebviewWidgetFactory);
 
     bind(PluginViewWidget).toSelf();
     bind(WidgetFactory).toDynamicValue(({ container }) => ({
@@ -198,10 +184,18 @@ export default new ContainerModule((bind, unbind, isBound, rebind) => {
     bind(PluginSharedStyle).toSelf().inSingletonScope();
     bind(PluginViewRegistry).toSelf().inSingletonScope();
     bind(FrontendApplicationContribution).toService(PluginViewRegistry);
+
+    bind(PluginIconThemeFactory).toFactory<PluginIconTheme>(({ container }) => (definition: PluginIconThemeDefinition) => {
+        const child = container.createChild();
+        child.bind(PluginIconThemeDefinition).toConstantValue(definition);
+        child.bind(PluginIconTheme).toSelf().inSingletonScope();
+        return child.get(PluginIconTheme);
+    });
+    bind(PluginIconThemeService).toSelf().inSingletonScope();
+    bind(LabelProviderContribution).toService(PluginIconThemeService);
+
     bind(MenusContributionPointHandler).toSelf().inSingletonScope();
-
     bind(KeybindingsContributionPointHandler).toSelf().inSingletonScope();
-
     bind(PluginContributionHandler).toSelf().inSingletonScope();
 
     bind(InPluginFileSystemWatcherManager).toSelf().inSingletonScope();

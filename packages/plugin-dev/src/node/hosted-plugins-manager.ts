@@ -16,8 +16,10 @@
 
 import { inject, injectable } from 'inversify';
 import * as cp from 'child_process';
+import * as processTree from 'ps-tree';
 import * as fs from 'fs';
-import { sep as PATH_SEPARATOR } from 'path';
+import * as path from 'path';
+import { FileUri } from '@theia/core/lib/node';
 import { HostedPluginSupport } from '@theia/plugin-ext/lib/hosted/node/hosted-plugin';
 import { LogType } from '@theia/plugin-ext/lib/common/types';
 
@@ -26,7 +28,7 @@ export const HostedPluginsManager = Symbol('HostedPluginsManager');
 export interface HostedPluginsManager {
 
     /**
-     * Runs watcher script to recomple plugin on any changes along given path.
+     * Runs watcher script to recompile plugin on any changes along given path.
      *
      * @param uri uri to plugin root folder.
      */
@@ -40,7 +42,7 @@ export interface HostedPluginsManager {
     stopWatchCompilation(uri: string): Promise<void>;
 
     /**
-     * Chacks if watcher script to recomple plugin is running.
+     * Checks if watcher script to recompile plugin is running.
      *
      * @param uri uri to plugin root folder.
      */
@@ -60,7 +62,7 @@ export class HostedPluginsManagerImpl implements HostedPluginsManager {
     }
 
     runWatchCompilation(uri: string): Promise<void> {
-        const pluginRootPath = this.getFsPath(uri);
+        const pluginRootPath = FileUri.fsPath(uri);
 
         if (this.watchCompilationRegistry.has(pluginRootPath)) {
             throw new Error('Watcher is already running in ' + pluginRootPath);
@@ -77,40 +79,49 @@ export class HostedPluginsManagerImpl implements HostedPluginsManager {
         return this.runWatchScript(pluginRootPath);
     }
 
+    private killProcessTree(parentPid: number): void {
+        processTree(parentPid, (err: Error, childProcesses: Array<processTree.PS>) => {
+            childProcesses.forEach((p: processTree.PS) => {
+                process.kill(parseInt(p.PID));
+            });
+            process.kill(parentPid);
+        });
+    }
+
     stopWatchCompilation(uri: string): Promise<void> {
-        const pluginPath = this.getFsPath(uri);
+        const pluginPath = FileUri.fsPath(uri);
 
         const watchProcess = this.watchCompilationRegistry.get(pluginPath);
         if (!watchProcess) {
             throw new Error('Watcher is not running in ' + pluginPath);
         }
 
-        watchProcess.kill();
+        this.killProcessTree(watchProcess.pid);
         return Promise.resolve();
     }
 
     isWatchCompilationRunning(uri: string): Promise<boolean> {
-        const pluginPath = this.getFsPath(uri);
+        const pluginPath = FileUri.fsPath(uri);
 
         return new Promise(resolve => resolve(this.watchCompilationRegistry.has(pluginPath)));
     }
 
-    protected runWatchScript(path: string): Promise<void> {
-        const watchProcess = cp.spawn('yarn', ['run', 'watch'], { cwd: path });
-        watchProcess.on('exit', () => this.unregisterWatchScript(path));
+    protected runWatchScript(pluginRootPath: string): Promise<void> {
+        const watchProcess = cp.spawn('yarn', ['run', 'watch'], { cwd: pluginRootPath, shell: true });
+        watchProcess.on('exit', () => this.unregisterWatchScript(pluginRootPath));
 
-        this.watchCompilationRegistry.set(path, watchProcess);
+        this.watchCompilationRegistry.set(pluginRootPath, watchProcess);
         this.hostedPluginSupport.sendLog({
-            data: 'Compilation watcher has been started in ' + path,
+            data: 'Compilation watcher has been started in ' + pluginRootPath,
             type: LogType.Info
         });
         return Promise.resolve();
     }
 
-    protected unregisterWatchScript(path: string): void {
-        this.watchCompilationRegistry.delete(path);
+    protected unregisterWatchScript(pluginRootPath: string): void {
+        this.watchCompilationRegistry.delete(pluginRootPath);
         this.hostedPluginSupport.sendLog({
-            data: 'Compilation watcher has been stopped in ' + path,
+            data: 'Compilation watcher has been stopped in ' + pluginRootPath,
             type: LogType.Info
         });
     }
@@ -121,7 +132,7 @@ export class HostedPluginsManagerImpl implements HostedPluginsManager {
      * @param pluginPath path to plugin's root directory
      */
     protected checkWatchScript(pluginPath: string): boolean {
-        const pluginPackageJsonPath = pluginPath + 'package.json';
+        const pluginPackageJsonPath = path.join(pluginPath, 'package.json');
         if (fs.existsSync(pluginPackageJsonPath)) {
             const packageJson = require(pluginPackageJsonPath);
             const scripts = packageJson['scripts'];
@@ -130,20 +141,6 @@ export class HostedPluginsManagerImpl implements HostedPluginsManager {
             }
         }
         return false;
-    }
-
-    protected getFsPath(uri: string): string {
-        if (!uri.startsWith('file')) {
-            throw new Error('Plugin uri ' + uri + ' is not supported.');
-        }
-
-        const path = uri.substring(uri.indexOf('://') + 3);
-
-        if (!path.endsWith(PATH_SEPARATOR)) {
-            return path + PATH_SEPARATOR;
-        }
-
-        return path;
     }
 
 }

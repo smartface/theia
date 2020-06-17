@@ -35,21 +35,6 @@ declare module '@theia/plugin' {
         export function stop(id: string): void;
     }
 
-    // Experimental API
-    // https://github.com/Microsoft/vscode/blob/1.30.2/src/vs/vscode.proposed.d.ts#L1015
-    export interface FileRenameEvent {
-        readonly oldUri: Uri;
-        readonly newUri: Uri;
-    }
-
-    // Experimental API
-    // https://github.com/Microsoft/vscode/blob/1.30.2/src/vs/vscode.proposed.d.ts#L1020
-    export interface FileWillRenameEvent {
-        readonly oldUri: Uri;
-        readonly newUri: Uri;
-        waitUntil(thenable: PromiseLike<WorkspaceEdit>): void;
-    }
-
     /**
     * The language contribution interface defines an information about language server which should be registered.
     */
@@ -140,13 +125,6 @@ declare module '@theia/plugin' {
         OSX = 'OSX'
     }
 
-    export namespace workspace {
-        // Experimental API
-        // https://github.com/Microsoft/vscode/blob/1.30.2/src/vs/vscode.proposed.d.ts#L1026-L1028
-        export const onWillRenameFile: Event<FileWillRenameEvent>;
-        export const onDidRenameFile: Event<FileRenameEvent>;
-    }
-
     export namespace env {
 
         /**
@@ -189,6 +167,35 @@ declare module '@theia/plugin' {
         onDidChangeDecorations: Event<undefined | Uri | Uri[]>;
         provideDecoration(uri: Uri, token: CancellationToken): ProviderResult<DecorationData>;
     }
+
+    //#region LogLevel: https://github.com/microsoft/vscode/issues/85992
+
+    /**
+     * The severity level of a log message
+     */
+    export enum LogLevel {
+        Trace = 1,
+        Debug = 2,
+        Info = 3,
+        Warning = 4,
+        Error = 5,
+        Critical = 6,
+        Off = 7
+    }
+
+    export namespace env {
+        /**
+         * Current logging level.
+         */
+        export const logLevel: LogLevel;
+
+        /**
+         * An [event](#Event) that fires when the log level has changed.
+         */
+        export const onDidChangeLogLevel: Event<LogLevel>;
+    }
+
+    //#endregion
 
     export namespace window {
         export function registerDecorationProvider(provider: DecorationProvider): Disposable;

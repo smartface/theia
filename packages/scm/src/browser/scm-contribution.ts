@@ -14,6 +14,8 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  ********************************************************************************/
 import { inject, injectable, postConstruct } from 'inversify';
+import { Emitter } from '@theia/core/lib/common/event';
+import { find } from '@phosphor/algorithm';
 import {
     AbstractViewContribution,
     FrontendApplicationContribution, LabelProvider,
@@ -22,15 +24,18 @@ import {
     StatusBarAlignment,
     StatusBarEntry,
     KeybindingRegistry,
-    ViewContainerTitleOptions
-} from '@theia/core/lib/browser';
-import { CommandRegistry, Disposable, DisposableCollection, CommandService } from '@theia/core/lib/common';
+    ViewContainerTitleOptions,
+    ViewContainer} from '@theia/core/lib/browser';
+import { TabBarToolbarContribution, TabBarToolbarRegistry, TabBarToolbarItem } from '@theia/core/lib/browser/shell/tab-bar-toolbar';
+import { CommandRegistry, Command, Disposable, DisposableCollection, CommandService } from '@theia/core/lib/common';
 import { ContextKeyService, ContextKey } from '@theia/core/lib/browser/context-key-service';
 import { ScmService } from './scm-service';
 import { ScmWidget } from '../browser/scm-widget';
 import URI from '@theia/core/lib/common/uri';
 import { ScmQuickOpenService } from './scm-quick-open-service';
 import { ScmRepository } from './scm-repository';
+import { ColorContribution } from '@theia/core/lib/browser/color-application-contribution';
+import { ColorRegistry, Color } from '@theia/core/lib/browser/color-registry';
 
 export const SCM_WIDGET_FACTORY_ID = ScmWidget.ID;
 export const SCM_VIEW_CONTAINER_ID = 'scm-view-container';
@@ -49,10 +54,28 @@ export namespace SCM_COMMANDS {
     export const ACCEPT_INPUT = {
         id: 'scm.acceptInput'
     };
+    export const TREE_VIEW_MODE = {
+        id: 'scm.viewmode.tree',
+        tooltip: 'Toggle to Tree View',
+        iconClass: 'codicon codicon-list-tree',
+        label: 'Toggle to Tree View',
+    };
+    export const LIST_VIEW_MODE = {
+        id: 'scm.viewmode.list',
+        tooltip: 'Toggle to List View',
+        iconClass: 'codicon codicon-list-flat',
+        label: 'Toggle to List View',
+    };
+}
+
+export namespace ScmColors {
+    export const editorGutterModifiedBackground = 'editorGutter.modifiedBackground';
+    export const editorGutterAddedBackground = 'editorGutter.addedBackground';
+    export const editorGutterDeletedBackground = 'editorGutter.deletedBackground';
 }
 
 @injectable()
-export class ScmContribution extends AbstractViewContribution<ScmWidget> implements FrontendApplicationContribution {
+export class ScmContribution extends AbstractViewContribution<ScmWidget> implements FrontendApplicationContribution, TabBarToolbarContribution, ColorContribution {
 
     @inject(StatusBar) protected readonly statusBar: StatusBar;
     @inject(ScmService) protected readonly scmService: ScmService;
@@ -60,6 +83,7 @@ export class ScmContribution extends AbstractViewContribution<ScmWidget> impleme
     @inject(ScmQuickOpenService) protected readonly scmQuickOpenService: ScmQuickOpenService;
     @inject(LabelProvider) protected readonly labelProvider: LabelProvider;
     @inject(CommandService) protected readonly commands: CommandService;
+    @inject(CommandRegistry) protected readonly commandRegistry: CommandRegistry;
     @inject(ContextKeyService) protected readonly contextKeys: ContextKeyService;
 
     protected scmFocus: ContextKey<boolean>;
@@ -68,7 +92,7 @@ export class ScmContribution extends AbstractViewContribution<ScmWidget> impleme
         super({
             viewContainerId: SCM_VIEW_CONTAINER_ID,
             widgetId: SCM_WIDGET_FACTORY_ID,
-            widgetName: 'SCM',
+            widgetName: 'Source Control',
             defaultWidgetOptions: {
                 area: 'left',
                 rank: 300
@@ -113,6 +137,49 @@ export class ScmContribution extends AbstractViewContribution<ScmWidget> impleme
             execute: () => this.acceptInput(),
             isEnabled: () => !!this.scmFocus.get() && !!this.acceptInputCommand()
         });
+    }
+
+    registerToolbarItems(registry: TabBarToolbarRegistry): void {
+        const viewModeEmitter = new Emitter<void>();
+        /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
+        const extractScmWidget = (widget: any) => {
+            if (widget instanceof ViewContainer) {
+                const layout = widget.containerLayout;
+                const scmWidgetPart = find(layout.iter(), part => part.wrapped instanceof ScmWidget);
+                if (scmWidgetPart && scmWidgetPart.wrapped instanceof ScmWidget) {
+                    return scmWidgetPart.wrapped;
+                }
+            }
+        };
+        const registerToggleViewItem = (command: Command, mode: 'tree' | 'list') => {
+            const id = command.id;
+            const item: TabBarToolbarItem = {
+                id,
+                command: id,
+                tooltip: command.label,
+                onDidChange: viewModeEmitter.event
+            };
+            this.commandRegistry.registerCommand({ id, iconClass: command && command.iconClass }, {
+                execute: widget => {
+                    const scmWidget = extractScmWidget(widget);
+                    if (scmWidget) {
+                        scmWidget.viewMode = mode;
+                        viewModeEmitter.fire();
+                    }
+                },
+                isVisible: widget => {
+                    const scmWidget = extractScmWidget(widget);
+                    if (scmWidget) {
+                        return !!this.scmService.selectedRepository
+                            && scmWidget.viewMode !== mode;
+                    }
+                    return false;
+                },
+            });
+            registry.registerItem(item);
+        };
+        registerToggleViewItem(SCM_COMMANDS.TREE_VIEW_MODE, 'tree');
+        registerToggleViewItem(SCM_COMMANDS.LIST_VIEW_MODE, 'list');
     }
 
     registerKeybindings(keybindings: KeybindingRegistry): void {
@@ -178,6 +245,78 @@ export class ScmContribution extends AbstractViewContribution<ScmWidget> impleme
     protected setStatusBarEntry(id: string, entry: StatusBarEntry): void {
         this.statusBar.setElement(id, entry);
         this.statusBarDisposable.push(Disposable.create(() => this.statusBar.removeElement(id)));
+    }
+
+    /**
+     * It should be aligned with https://github.com/microsoft/vscode/blob/0dfa355b3ad185a6289ba28a99c141ab9e72d2be/src/vs/workbench/contrib/scm/browser/dirtydiffDecorator.ts#L808
+     */
+    registerColors(colors: ColorRegistry): void {
+        colors.register(
+            {
+                id: ScmColors.editorGutterModifiedBackground, defaults: {
+                    dark: Color.rgba(12, 125, 157),
+                    light: Color.rgba(102, 175, 224),
+                    hc: Color.rgba(0, 155, 249)
+                }, description: 'Editor gutter background color for lines that are modified.'
+            },
+            {
+                id: ScmColors.editorGutterAddedBackground, defaults: {
+                    dark: Color.rgba(88, 124, 12),
+                    light: Color.rgba(129, 184, 139),
+                    hc: Color.rgba(51, 171, 78)
+                }, description: 'Editor gutter background color for lines that are added.'
+            },
+            {
+                id: ScmColors.editorGutterDeletedBackground, defaults: {
+                    dark: Color.rgba(148, 21, 27),
+                    light: Color.rgba(202, 75, 81),
+                    hc: Color.rgba(252, 93, 109)
+                }, description: 'Editor gutter background color for lines that are deleted.'
+            },
+            {
+                id: 'minimapGutter.modifiedBackground', defaults: {
+                    dark: Color.rgba(12, 125, 157),
+                    light: Color.rgba(102, 175, 224),
+                    hc: Color.rgba(0, 155, 249)
+                }, description: 'Minimap gutter background color for lines that are modified.'
+            },
+            {
+                id: 'minimapGutter.addedBackground',
+                defaults: {
+                    dark: Color.rgba(88, 124, 12),
+                    light: Color.rgba(129, 184, 139),
+                    hc: Color.rgba(51, 171, 78)
+                }, description: 'Minimap gutter background color for lines that are added.'
+            },
+            {
+                id: 'minimapGutter.deletedBackground', defaults: {
+                    dark: Color.rgba(148, 21, 27),
+                    light: Color.rgba(202, 75, 81),
+                    hc: Color.rgba(252, 93, 109)
+                }, description: 'Minimap gutter background color for lines that are deleted.'
+            },
+            {
+                id: 'editorOverviewRuler.modifiedForeground', defaults: {
+                    dark: Color.transparent(ScmColors.editorGutterModifiedBackground, 0.6),
+                    light: Color.transparent(ScmColors.editorGutterModifiedBackground, 0.6),
+                    hc: Color.transparent(ScmColors.editorGutterModifiedBackground, 0.6)
+                }, description: 'Overview ruler marker color for modified content.'
+            },
+            {
+                id: 'editorOverviewRuler.addedForeground', defaults: {
+                    dark: Color.transparent(ScmColors.editorGutterAddedBackground, 0.6),
+                    light: Color.transparent(ScmColors.editorGutterAddedBackground, 0.6),
+                    hc: Color.transparent(ScmColors.editorGutterAddedBackground, 0.6)
+                }, description: 'Overview ruler marker color for added content.'
+            },
+            {
+                id: 'editorOverviewRuler.deletedForeground', defaults: {
+                    dark: Color.transparent(ScmColors.editorGutterDeletedBackground, 0.6),
+                    light: Color.transparent(ScmColors.editorGutterDeletedBackground, 0.6),
+                    hc: Color.transparent(ScmColors.editorGutterDeletedBackground, 0.6)
+                }, description: 'Overview ruler marker color for deleted content.'
+            }
+        );
     }
 
 }

@@ -14,7 +14,7 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  ********************************************************************************/
 
-/* tslint:disable:no-any */
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { Emitter, Event } from '@theia/core/lib/common/event';
 import * as theia from '@theia/plugin';
@@ -52,7 +52,7 @@ interface ConfigurationInspect<T> {
     workspaceFolderValue?: T;
 }
 
-// tslint:disable-next-line:no-any
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function lookUp(tree: any, key: string): any {
     if (!key) {
         return;
@@ -122,7 +122,7 @@ export class PreferenceRegistryExtImpl implements PreferenceRegistryExt {
                                     return () => clonedTarget;
                                 }
                                 if (clonedConfig) {
-                                    clonedTarget = cloneTarget ? cloneTarget : lookUp(clonedConfig, accessor);
+                                    clonedTarget = clonedTarget ? clonedTarget : lookUp(clonedConfig, accessor);
                                     return clonedTarget[prop];
                                 }
                                 const res = targ[prop];

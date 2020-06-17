@@ -14,7 +14,7 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  ********************************************************************************/
 
-import URI from 'vscode-uri/lib/umd';
+import { URI } from 'vscode-uri';
 import * as theia from '@theia/plugin';
 import * as Converter from '../type-converters';
 import * as model from '../../common/plugin-api-rpc-model';
@@ -117,7 +117,7 @@ export class RenameAdapter {
         });
     }
 
-    /* tslint:disable-next-line:no-any */
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     private static asMessage(err: any): string | undefined {
         if (typeof err === 'string') {
             return err;

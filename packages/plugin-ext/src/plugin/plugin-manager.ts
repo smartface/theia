@@ -16,6 +16,7 @@
 
 import {
     PLUGIN_RPC_CONTEXT,
+    NotificationMain,
     MainMessageType,
     MessageRegistryMain,
     PluginManagerExt,
@@ -29,7 +30,6 @@ import {
 import { PluginMetadata } from '../common/plugin-protocol';
 import * as theia from '@theia/plugin';
 import { join } from 'path';
-import { dispose } from '../common/disposable-util';
 import { Deferred } from '@theia/core/lib/common/promise-util';
 import { EnvExtImpl } from './env';
 import { PreferenceRegistryExtImpl } from './preference-registry';
@@ -37,13 +37,11 @@ import { Memento, KeyValueStorageProxy } from './plugin-storage';
 import { ExtPluginApi } from '../common/plugin-ext-api-contribution';
 import { RPCProtocol } from '../common/rpc-protocol';
 import { Emitter } from '@theia/core/lib/common/event';
-import * as os from 'os';
-import * as fs from 'fs-extra';
 import { WebviewsExtImpl } from './webviews';
 
 export interface PluginHost {
 
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     loadPlugin(plugin: Plugin): any;
 
     init(data: PluginMetadata[]): Promise<[Plugin[], Plugin[]]> | [Plugin[], Plugin[]];
@@ -54,7 +52,16 @@ export interface PluginHost {
 }
 
 interface StopFn {
-    (): void;
+    (): void | Promise<void>;
+}
+
+interface StopOptions {
+    /**
+     * if terminating then stopping will ignore all errors,
+     * since the main side is already gone and any requests are likely to fail
+     * or hang
+     */
+    terminating: boolean
 }
 
 class ActivatedPlugin {
@@ -77,6 +84,7 @@ export class PluginManagerExtImpl implements PluginManagerExt, PluginManager {
         'onWebviewPanel'
     ]);
 
+    private configStorage: ConfigStorage | undefined;
     private readonly registry = new Map<string, Plugin>();
     private readonly activations = new Map<string, (() => Promise<void>)[] | undefined>();
     /** promises to whether loading each plugin has been successful */
@@ -87,6 +95,7 @@ export class PluginManagerExtImpl implements PluginManagerExt, PluginManager {
 
     private onDidChangeEmitter = new Emitter<void>();
     private messageRegistryProxy: MessageRegistryMain;
+    private notificationMain: NotificationMain;
     protected fireOnDidChange(): void {
         this.onDidChangeEmitter.fire(undefined);
     }
@@ -100,12 +109,12 @@ export class PluginManagerExtImpl implements PluginManagerExt, PluginManager {
         private readonly rpc: RPCProtocol
     ) {
         this.messageRegistryProxy = this.rpc.getProxy(PLUGIN_RPC_CONTEXT.MESSAGE_REGISTRY_MAIN);
+        this.notificationMain = this.rpc.getProxy(PLUGIN_RPC_CONTEXT.NOTIFICATION_MAIN);
     }
 
     async $stop(pluginId?: string): Promise<void> {
         if (!pluginId) {
-            this.stopAll();
-            return;
+            return this.stopAll();
         }
         this.registry.delete(pluginId);
         this.pluginActivationPromises.delete(pluginId);
@@ -116,28 +125,58 @@ export class PluginManagerExtImpl implements PluginManagerExt, PluginManager {
             return;
         }
         this.activatedPlugins.delete(pluginId);
-        this.stopPlugin(plugin);
+        return this.stopPlugin(pluginId, plugin);
     }
 
-    protected stopAll(): void {
-        this.activatedPlugins.forEach(plugin => this.stopPlugin(plugin));
+    async terminate(): Promise<void> {
+        return this.stopAll({ terminating: true });
+    }
+
+    protected async stopAll(options: StopOptions = { terminating: false }): Promise<void> {
+        const promises = [];
+        for (const [id, plugin] of this.activatedPlugins) {
+            promises.push(this.stopPlugin(id, plugin, options));
+        }
 
         this.registry.clear();
         this.loadedPlugins.clear();
         this.activatedPlugins.clear();
         this.pluginActivationPromises.clear();
         this.pluginContextsMap.clear();
+        await Promise.all(promises);
     }
 
-    protected stopPlugin(plugin: ActivatedPlugin): void {
+    protected async stopPlugin(id: string, plugin: ActivatedPlugin, options: StopOptions = { terminating: false }): Promise<void> {
+        let result;
         if (plugin.stopFn) {
-            plugin.stopFn();
+            try {
+                result = plugin.stopFn();
+            } catch (e) {
+                if (!options.terminating) {
+                    console.error(`[${id}]: failed to stop:`, e);
+                }
+            }
         }
 
-        // dispose any objects
         const pluginContext = plugin.pluginContext;
         if (pluginContext) {
-            dispose(pluginContext.subscriptions);
+            for (const subscription of pluginContext.subscriptions) {
+                try {
+                    subscription.dispose();
+                } catch (e) {
+                    if (!options.terminating) {
+                        console.error(`[${id}]: failed to dispose subscription:`, e);
+                    }
+                }
+            }
+        }
+
+        try {
+            await result;
+        } catch (e) {
+            if (!options.terminating) {
+                console.error(`[${id}]: failed to stop:`, e);
+            }
         }
     }
 
@@ -147,6 +186,7 @@ export class PluginManagerExtImpl implements PluginManagerExt, PluginManager {
         this.envExt.setQueryParameters(params.env.queryParams);
         this.envExt.setLanguage(params.env.language);
         this.envExt.setShell(params.env.shell);
+        this.envExt.setApplicationName(params.env.appName);
 
         this.preferencesManager.init(params.preferences);
 
@@ -158,14 +198,16 @@ export class PluginManagerExtImpl implements PluginManagerExt, PluginManager {
     }
 
     async $start(params: PluginManagerStartParams): Promise<void> {
+        this.configStorage = params.configStorage;
+
         const [plugins, foreignPlugins] = await this.host.init(params.plugins);
         // add foreign plugins
         for (const plugin of foreignPlugins) {
-            this.registerPlugin(plugin, params.configStorage);
+            this.registerPlugin(plugin);
         }
         // add own plugins, before initialization
         for (const plugin of plugins) {
-            this.registerPlugin(plugin, params.configStorage);
+            this.registerPlugin(plugin);
         }
 
         // run eager plugins
@@ -181,12 +223,10 @@ export class PluginManagerExtImpl implements PluginManagerExt, PluginManager {
         this.fireOnDidChange();
     }
 
-    protected registerPlugin(plugin: Plugin, configStorage: ConfigStorage): void {
+    protected registerPlugin(plugin: Plugin): void {
         this.registry.set(plugin.model.id, plugin);
         if (plugin.pluginPath && Array.isArray(plugin.rawModel.activationEvents)) {
-            const activation = async () => {
-                await this.loadPlugin(plugin, configStorage);
-            };
+            const activation = () => this.$activatePlugin(plugin.model.id);
             // an internal activation event is a subject to change
             this.setActivation(`onPlugin:${plugin.model.id}`, activation);
             const unsupportedActivationEvents = plugin.rawModel.activationEvents.filter(e => !PluginManagerExtImpl.SUPPORTED_ACTIVATION_EVENTS.has(e.split(':')[0]));
@@ -220,31 +260,39 @@ export class PluginManagerExtImpl implements PluginManagerExt, PluginManager {
         let loading = this.loadedPlugins.get(plugin.model.id);
         if (!loading) {
             loading = (async () => {
-                if (plugin.rawModel.extensionDependencies) {
-                    for (const dependencyId of plugin.rawModel.extensionDependencies) {
-                        const dependency = this.registry.get(dependencyId.toLowerCase());
-                        const id = plugin.model.displayName || plugin.model.id;
-                        if (dependency) {
-                            const depId = dependency.model.displayName || dependency.model.id;
-                            const loadedSuccessfully = await this.loadPlugin(dependency, configStorage, visited);
-                            if (!loadedSuccessfully) {
-                                const message = `Cannot activate extension '${id}' because it depends on extension '${depId}', which failed to activate.`;
+                const progressId = await this.notificationMain.$startProgress({
+                    title: `Activating ${plugin.model.displayName || plugin.model.name}`,
+                    location: 'window'
+                });
+                try {
+                    if (plugin.rawModel.extensionDependencies) {
+                        for (const dependencyId of plugin.rawModel.extensionDependencies) {
+                            const dependency = this.registry.get(dependencyId.toLowerCase());
+                            const id = plugin.model.displayName || plugin.model.id;
+                            if (dependency) {
+                                const depId = dependency.model.displayName || dependency.model.id;
+                                const loadedSuccessfully = await this.loadPlugin(dependency, configStorage, visited);
+                                if (!loadedSuccessfully) {
+                                    const message = `Cannot activate extension '${id}' because it depends on extension '${depId}', which failed to activate.`;
+                                    this.messageRegistryProxy.$showMessage(MainMessageType.Error, message, {}, []);
+                                    return false;
+                                }
+                            } else {
+                                const message = `Cannot activate the '${id}' extension because it depends on the '${dependencyId}' extension, which is not installed.`;
                                 this.messageRegistryProxy.$showMessage(MainMessageType.Error, message, {}, []);
+                                console.warn(message);
                                 return false;
                             }
-                        } else {
-                            const message = `Cannot activate the '${id}' extension because it depends on the '${dependencyId}' extension, which is not installed.`;
-                            this.messageRegistryProxy.$showMessage(MainMessageType.Error, message, {}, []);
-                            console.warn(message);
-                            return false;
                         }
                     }
-                }
 
-                let pluginMain = this.host.loadPlugin(plugin);
-                // see https://github.com/TypeFox/vscode/blob/70b8db24a37fafc77247de7f7cb5bb0195120ed0/src/vs/workbench/api/common/extHostExtensionService.ts#L372-L376
-                pluginMain = pluginMain || {};
-                return this.startPlugin(plugin, configStorage, pluginMain);
+                    let pluginMain = this.host.loadPlugin(plugin);
+                    // see https://github.com/TypeFox/vscode/blob/70b8db24a37fafc77247de7f7cb5bb0195120ed0/src/vs/workbench/api/common/extHostExtensionService.ts#L372-L376
+                    pluginMain = pluginMain || {};
+                    return await this.startPlugin(plugin, configStorage, pluginMain);
+                } finally {
+                    this.notificationMain.$stopProgress(progressId);
+                }
             })();
         }
         this.loadedPlugins.set(plugin.model.id, loading);
@@ -252,6 +300,9 @@ export class PluginManagerExtImpl implements PluginManagerExt, PluginManager {
     }
 
     async $updateStoragePath(path: string | undefined): Promise<void> {
+        if (this.configStorage) {
+            this.configStorage.hostStoragePath = path;
+        }
         this.pluginContextsMap.forEach((pluginContext: theia.PluginContext, pluginId: string) => {
             pluginContext.storagePath = path ? join(path, pluginId) : undefined;
         });
@@ -263,23 +314,27 @@ export class PluginManagerExtImpl implements PluginManagerExt, PluginManager {
             return;
         }
         this.activations.set(activationEvent, undefined);
+        const pendingActivations = [];
         while (activations.length) {
-            await activations.pop()!();
+            pendingActivations.push(activations.pop()!());
+        }
+        await Promise.all(pendingActivations);
+    }
+
+    async $activatePlugin(id: string): Promise<void> {
+        const plugin = this.registry.get(id);
+        if (plugin && this.configStorage) {
+            await this.loadPlugin(plugin, this.configStorage);
         }
     }
 
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     private async startPlugin(plugin: Plugin, configStorage: ConfigStorage, pluginMain: any): Promise<boolean> {
         const subscriptions: theia.Disposable[] = [];
         const asAbsolutePath = (relativePath: string): string => join(plugin.pluginFolder, relativePath);
         const logPath = join(configStorage.hostLogPath, plugin.model.id); // todo check format
-        const storagePath = join(configStorage.hostStoragePath || '', plugin.model.id);
-        async function defaultGlobalStorage(): Promise<string> {
-            const globalStorage = join(os.homedir(), '.theia', 'globalStorage');
-            await fs.ensureDir(globalStorage);
-            return globalStorage;
-        }
-        const globalStoragePath = join(configStorage.hostGlobalStoragePath || (await defaultGlobalStorage()), plugin.model.id);
+        const storagePath = configStorage.hostStoragePath ? join(configStorage.hostStoragePath, plugin.model.id) : undefined;
+        const globalStoragePath = join(configStorage.hostGlobalStoragePath, plugin.model.id);
         const pluginContext: theia.PluginContext = {
             extensionPath: plugin.pluginFolder,
             globalState: new Memento(plugin.model.id, true, this.storageProxy),
@@ -368,6 +423,5 @@ export class PluginManagerExtImpl implements PluginManagerExt, PluginManager {
 
 // for electron
 function getGlobal(): Window | NodeJS.Global | null {
-    // tslint:disable-next-line:no-null-keyword
     return typeof self === 'undefined' ? typeof global === 'undefined' ? null : global : self;
 }

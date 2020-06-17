@@ -21,7 +21,7 @@ import { DiagnosticSeverity, MarkerSeverity } from '../types-impl';
 import { MarkerData } from '../../common/plugin-api-rpc-model';
 import { RPCProtocol } from '../../common/rpc-protocol';
 import { PLUGIN_RPC_CONTEXT, LanguagesMain } from '../../common/plugin-api-rpc';
-import URI from 'vscode-uri';
+import { URI } from 'vscode-uri';
 import { v4 } from 'uuid';
 
 export class DiagnosticCollection implements theia.DiagnosticCollection {
@@ -126,7 +126,7 @@ export class DiagnosticCollection implements theia.DiagnosticCollection {
         this.proxy.$clearDiagnostics(this.name);
     }
 
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     forEach(callback: (uri: URI, diagnostics: theia.Diagnostic[], collection: theia.DiagnosticCollection) => any, thisArg?: any): void {
         this.ensureNotDisposed();
         this.diagnostics.forEach((diagnostics, uriString) => {
@@ -249,7 +249,7 @@ export class Diagnostics {
     private static GENERATED_DIAGNOSTIC_COLLECTION_NAME_PREFIX = '_generated_diagnostic_collection_name_#';
 
     private proxy: LanguagesMain;
-    private diagnosticCollections: Map<string, DiagnosticCollection>; // id -> diagnostic colection
+    private diagnosticCollections: Map<string, DiagnosticCollection>; // id -> diagnostic collection
 
     private diagnosticsChangedEmitter = new Emitter<theia.DiagnosticChangeEvent>();
     public readonly onDidChangeDiagnostics: Event<theia.DiagnosticChangeEvent> = this.diagnosticsChangedEmitter.event;
@@ -264,7 +264,7 @@ export class Diagnostics {
     getDiagnostics(): [theia.Uri, theia.Diagnostic[]][];
     getDiagnostics(resource?: URI): theia.Diagnostic[] | [URI, theia.Diagnostic[]][] {
         if (resource) {
-            return this.getAllDiagnisticsForResource(resource);
+            return this.getAllDiagnosticsForResource(resource);
         } else {
             return this.getAllDiagnostics();
         }
@@ -291,7 +291,7 @@ export class Diagnostics {
         return v4();
     }
 
-    private getAllDiagnisticsForResource(uri: URI): theia.Diagnostic[] {
+    private getAllDiagnosticsForResource(uri: URI): theia.Diagnostic[] {
         let result: theia.Diagnostic[] = [];
         this.diagnosticCollections.forEach(diagnosticCollection => {
             const diagnostics = diagnosticCollection.get(uri);

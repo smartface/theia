@@ -23,7 +23,7 @@ import { ApplicationProps } from './application-props';
 
 // tslint:disable:no-implicit-dependencies
 
-// tslint:disable-next-line:no-any
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type ApplicationLog = (message?: any, ...optionalParams: any[]) => void;
 export class ApplicationPackageOptions {
     readonly projectPath: string;
@@ -79,6 +79,12 @@ export class ApplicationPackage {
 
         if (this.options.appTarget) {
             theia.target = this.options.appTarget;
+        }
+
+        if (theia.target && !(theia.target in ApplicationProps.ApplicationTarget)) {
+            const defaultTarget = ApplicationProps.ApplicationTarget.browser;
+            console.warn(`Unknown application target '${theia.target}', '${defaultTarget}' to be used instead`);
+            theia.target = defaultTarget;
         }
 
         return this._props = { ...ApplicationProps.DEFAULT, ...theia };
@@ -205,11 +211,11 @@ export class ApplicationPackage {
     }
 
     isBrowser(): boolean {
-        return this.target === 'browser';
+        return this.target === ApplicationProps.ApplicationTarget.browser;
     }
 
     isElectron(): boolean {
-        return this.target === 'electron';
+        return this.target === ApplicationProps.ApplicationTarget.electron;
     }
 
     ifBrowser<T>(value: T): T | undefined;

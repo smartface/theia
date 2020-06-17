@@ -15,8 +15,8 @@
  ********************************************************************************/
 
 import * as assert from 'assert';
-import { KnownCommands } from '../common/known-commands';
-import URI from 'vscode-uri';
+import { KnownCommands } from './known-commands';
+import { URI } from 'vscode-uri';
 import { Position } from './types-impl';
 import { fromPosition } from './type-converters';
 
@@ -34,7 +34,7 @@ describe('Known Command Conversions', () => {
         assert.ok(KnownCommands.mapped(commandID));
 
         // when
-        // tslint:disable-next-line:no-any
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         KnownCommands.map(commandID, [uri, position], (mappedID: string, mappedArgs: any[]) => {
 
             // then

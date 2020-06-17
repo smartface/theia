@@ -188,14 +188,16 @@ export class PluginViewRegistry implements FrontendApplicationContribution {
             return Disposable.NULL;
         }
         const toDispose = new DisposableCollection();
+        const containerClass = 'theia-plugin-view-container';
         const iconClass = 'plugin-view-container-icon-' + viewContainer.id;
-        toDispose.push(this.style.insertRule('.' + iconClass, () => `
-                mask: url('${viewContainer.iconUrl}') no-repeat 50% 50%;
-                -webkit-mask: url('${viewContainer.iconUrl}') no-repeat 50% 50%;
+        const iconUrl = PluginSharedStyle.toExternalIconUrl(viewContainer.iconUrl);
+        toDispose.push(this.style.insertRule('.' + containerClass + '.' + iconClass, () => `
+                mask: url('${iconUrl}') no-repeat 50% 50%;
+                -webkit-mask: url('${iconUrl}') no-repeat 50% 50%;
             `));
         toDispose.push(this.doRegisterViewContainer(viewContainer.id, location, {
             label: viewContainer.title,
-            iconClass,
+            iconClass: containerClass + ' ' + iconClass,
             closeable: true
         }));
         return toDispose;
@@ -261,12 +263,11 @@ export class PluginViewRegistry implements FrontendApplicationContribution {
         }
         toDispose.push(this.quickView.registerItem({
             label: view.name,
-            open: async () => {
-                const widget = await this.openView(view.id);
-                if (widget) {
-                    this.shell.activateWidget(widget.id);
-                }
-            }
+            when: view.when,
+            open: () => this.openView(view.id, { activate: true })
+        }));
+        toDispose.push(this.commands.registerCommand({ id: `${view.id}.focus` }, {
+            execute: () => this.openView(view.id, { activate: true })
         }));
         return toDispose;
     }
@@ -278,7 +279,14 @@ export class PluginViewRegistry implements FrontendApplicationContribution {
         return this.widgetManager.getWidget<PluginViewWidget>(PLUGIN_VIEW_FACTORY_ID, this.toPluginViewWidgetIdentifier(viewId));
     }
 
-    async openView(viewId: string): Promise<PluginViewWidget | undefined> {
+    async openView(viewId: string, options?: { activate?: boolean }): Promise<PluginViewWidget | undefined> {
+        const view = await this.doOpenView(viewId);
+        if (view && options && options.activate === true) {
+            await this.shell.activateWidget(view.id);
+        }
+        return view;
+    }
+    protected async doOpenView(viewId: string): Promise<PluginViewWidget | undefined> {
         const widget = await this.getView(viewId);
         if (widget) {
             return widget;

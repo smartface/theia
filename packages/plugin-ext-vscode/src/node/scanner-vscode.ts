@@ -17,6 +17,7 @@
 import { injectable } from 'inversify';
 import { PluginScanner, PluginEngine, PluginPackage, PluginModel, PluginLifecycle } from '@theia/plugin-ext';
 import { TheiaPluginScanner } from '@theia/plugin-ext/lib/hosted/node/scanners/scanner-theia';
+import { FileUri } from '@theia/core/lib/node/file-uri';
 
 @injectable()
 export class VsCodePluginScanner extends TheiaPluginScanner implements PluginScanner {
@@ -30,6 +31,7 @@ export class VsCodePluginScanner extends TheiaPluginScanner implements PluginSca
     getModel(plugin: PluginPackage): PluginModel {
         const result: PluginModel = {
             packagePath: plugin.packagePath,
+            packageUri: FileUri.create(plugin.packagePath).toString(),
             // see id definition: https://github.com/microsoft/vscode/blob/15916055fe0cb9411a5f36119b3b012458fe0a1d/src/vs/platform/extensions/common/extensions.ts#L167-L169
             id: `${plugin.publisher.toLowerCase()}.${plugin.name.toLowerCase()}`,
             name: plugin.name,
@@ -43,7 +45,10 @@ export class VsCodePluginScanner extends TheiaPluginScanner implements PluginSca
             },
             entryPoint: {
                 backend: plugin.main
-            }
+            },
+            iconUrl: plugin.icon && PluginPackage.toPluginUrl(plugin, plugin.icon),
+            readmeUrl: PluginPackage.toPluginUrl(plugin, './README.md'),
+            licenseUrl: PluginPackage.toPluginUrl(plugin, './LICENSE')
         };
         return result;
     }
@@ -65,7 +70,7 @@ export class VsCodePluginScanner extends TheiaPluginScanner implements PluginSca
             }
         }
         // Return the map of dependencies if present, else `undefined`.
-        return dependencies.size > 0 ? dependencies : undefined ;
+        return dependencies.size > 0 ? dependencies : undefined;
     }
 
     getLifecycle(plugin: PluginPackage): PluginLifecycle {

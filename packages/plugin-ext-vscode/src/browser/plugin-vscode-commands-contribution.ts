@@ -14,7 +14,7 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  ********************************************************************************/
 
-import { Command, CommandContribution, CommandRegistry, ResourceProvider } from '@theia/core';
+import { Command, CommandContribution, CommandRegistry } from '@theia/core';
 import {
     ApplicationShell,
     CommonCommands,
@@ -29,28 +29,44 @@ import { ApplicationShellMouseTracker } from '@theia/core/lib/browser/shell/appl
 import { CommandService } from '@theia/core/lib/common/command';
 import TheiaURI from '@theia/core/lib/common/uri';
 import { EditorManager } from '@theia/editor/lib/browser';
-import { TextDocumentShowOptions } from '@theia/plugin-ext/lib/common/plugin-api-rpc-model';
+import { CodeEditorWidget } from '@theia/plugin-ext/lib/main/browser/menus/menus-contribution-handler';
+import {
+    TextDocumentShowOptions,
+    Location,
+    CallHierarchyItem,
+    CallHierarchyIncomingCall,
+    CallHierarchyOutgoingCall,
+    Hover,
+    TextEdit,
+    FormattingOptions,
+    DocumentHighlight
+} from '@theia/plugin-ext/lib/common/plugin-api-rpc-model';
 import { DocumentsMainImpl } from '@theia/plugin-ext/lib/main/browser/documents-main';
-import { createUntitledResource } from '@theia/plugin-ext/lib/main/browser/editor/untitled-resource';
-import { fromViewColumn, toDocumentSymbol } from '@theia/plugin-ext/lib/plugin/type-converters';
+import { createUntitledURI } from '@theia/plugin-ext/lib/main/browser/editor/untitled-resource';
+import { toDocumentSymbol } from '@theia/plugin-ext/lib/plugin/type-converters';
 import { ViewColumn } from '@theia/plugin-ext/lib/plugin/types-impl';
 import { WorkspaceCommands } from '@theia/workspace/lib/browser';
+import { WorkspaceService, WorkspaceInput } from '@theia/workspace/lib/browser/workspace-service';
 import { DiffService } from '@theia/workspace/lib/browser/diff-service';
-import { MonacoEditor } from '@theia/monaco/lib/browser/monaco-editor';
 import { inject, injectable } from 'inversify';
-import URI from 'vscode-uri';
+import { Position } from '@theia/plugin-ext/lib/common/plugin-api-rpc';
+import { URI } from 'vscode-uri';
+import { MonacoEditor } from '@theia/monaco/lib/browser/monaco-editor';
+import { TerminalFrontendContribution } from '@theia/terminal/lib/browser/terminal-frontend-contribution';
+import { QuickOpenWorkspace } from '@theia/workspace/lib/browser/quick-open-workspace';
+import { TerminalService } from '@theia/terminal/lib/browser/base/terminal-service';
 
 export namespace VscodeCommands {
     export const OPEN: Command = {
         id: 'vscode.open'
     };
 
-    export const DIFF: Command = {
-        id: 'vscode.diff'
+    export const OPEN_FOLDER: Command = {
+        id: 'vscode.openFolder'
     };
 
-    export const SET_CONTEXT: Command = {
-        id: 'setContext'
+    export const DIFF: Command = {
+        id: 'vscode.diff'
     };
 }
 
@@ -64,8 +80,6 @@ export class PluginVscodeCommandsContribution implements CommandContribution {
     protected readonly editorManager: EditorManager;
     @inject(ApplicationShell)
     protected readonly shell: ApplicationShell;
-    @inject(ResourceProvider)
-    protected readonly resources: ResourceProvider;
     @inject(DiffService)
     protected readonly diffService: DiffService;
     @inject(OpenerService)
@@ -74,6 +88,14 @@ export class PluginVscodeCommandsContribution implements CommandContribution {
     protected readonly mouseTracker: ApplicationShellMouseTracker;
     @inject(PrefixQuickOpenService)
     protected readonly quickOpen: PrefixQuickOpenService;
+    @inject(WorkspaceService)
+    protected readonly workspaceService: WorkspaceService;
+    @inject(TerminalFrontendContribution)
+    protected readonly terminalContribution: TerminalFrontendContribution;
+    @inject(QuickOpenWorkspace)
+    protected readonly quickOpenWorkspace: QuickOpenWorkspace;
+    @inject(TerminalService)
+    protected readonly terminalService: TerminalService;
 
     registerCommands(commands: CommandRegistry): void {
         commands.registerCommand(VscodeCommands.OPEN, {
@@ -89,12 +111,11 @@ export class PluginVscodeCommandsContribution implements CommandContribution {
                 let options: TextDocumentShowOptions | undefined;
                 if (typeof columnOrOptions === 'number') {
                     options = {
-                        viewColumn: fromViewColumn(columnOrOptions)
+                        viewColumn: columnOrOptions
                     };
                 } else if (columnOrOptions) {
                     options = {
-                        ...columnOrOptions,
-                        viewColumn: fromViewColumn(columnOrOptions.viewColumn)
+                        ...columnOrOptions
                     };
                 }
                 const editorOptions = DocumentsMainImpl.toEditorOpenerOptions(this.shell, options);
@@ -102,9 +123,34 @@ export class PluginVscodeCommandsContribution implements CommandContribution {
             }
         });
 
+        interface IOpenFolderAPICommandOptions {
+            forceNewWindow?: boolean;
+            forceReuseWindow?: boolean;
+            noRecentEntry?: boolean;
+        }
+
+        commands.registerCommand(VscodeCommands.OPEN_FOLDER, {
+            isVisible: () => false,
+            execute: async (resource?: URI, arg: boolean | IOpenFolderAPICommandOptions = {}) => {
+                if (!resource) {
+                    return commands.executeCommand(WorkspaceCommands.OPEN_WORKSPACE.id);
+                }
+                if (!URI.isUri(resource)) {
+                    throw new Error(`Invalid argument for ${VscodeCommands.OPEN_FOLDER.id} command with URI argument. Found ${resource}`);
+                }
+                let options: WorkspaceInput | undefined;
+                if (typeof arg === 'boolean') {
+                    options = { preserveWindow: !arg };
+                } else {
+                    options = { preserveWindow: !arg.forceNewWindow };
+                }
+                this.workspaceService.open(new TheiaURI(resource), options);
+            }
+        });
+
         commands.registerCommand(VscodeCommands.DIFF, {
             isVisible: () => false,
-            // tslint:disable-next-line: no-any
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             execute: async (left: URI, right: URI, label?: string, options?: TextDocumentShowOptions) => {
                 if (!left || !right) {
                     throw new Error(`${VscodeCommands.DIFF} command requires at least two URI arguments. Found left=${left}, right=${right} as arguments`);
@@ -122,14 +168,6 @@ export class PluginVscodeCommandsContribution implements CommandContribution {
             }
         });
 
-        commands.registerCommand(VscodeCommands.SET_CONTEXT, {
-            isVisible: () => false,
-            // tslint:disable-next-line: no-any
-            execute: (contextKey: any, contextValue: any) => {
-                this.contextKeyService.createKey(String(contextKey), contextValue);
-            }
-        });
-
         // https://code.visualstudio.com/docs/getstarted/keybindings#_navigation
         /*
          * internally, in VS Code, any widget opened in the main area is represented as an editor
@@ -140,7 +178,7 @@ export class PluginVscodeCommandsContribution implements CommandContribution {
          * and apply actions only to them
          */
         commands.registerCommand({ id: 'workbench.action.files.newUntitledFile' }, {
-            execute: () => open(this.openerService, createUntitledResource().uri)
+            execute: () => open(this.openerService, createUntitledURI())
         });
         commands.registerCommand({ id: 'workbench.action.files.openFile' }, {
             execute: () => commands.executeCommand(WorkspaceCommands.OPEN_FILE.id)
@@ -148,28 +186,17 @@ export class PluginVscodeCommandsContribution implements CommandContribution {
         commands.registerCommand({ id: 'workbench.action.files.openFolder' }, {
             execute: () => commands.executeCommand(WorkspaceCommands.OPEN_FOLDER.id)
         });
+        commands.registerCommand({ id: 'workbench.action.addRootFolder' }, {
+            execute: () => commands.executeCommand(WorkspaceCommands.ADD_FOLDER.id)
+        });
         commands.registerCommand({ id: 'workbench.action.gotoLine' }, {
             execute: () => commands.executeCommand('editor.action.gotoLine')
-        });
-        commands.registerCommand({ id: 'actions.find' }, {
-            execute: () => commands.executeCommand(CommonCommands.FIND.id)
-        });
-        commands.registerCommand({ id: 'undo' }, {
-            execute: () => commands.executeCommand(CommonCommands.UNDO.id)
-        });
-        commands.registerCommand({ id: 'editor.action.startFindReplaceAction' }, {
-            execute: () => commands.executeCommand(CommonCommands.REPLACE.id)
         });
         commands.registerCommand({ id: 'workbench.action.quickOpen' }, {
             execute: () => this.quickOpen.open('')
         });
-        commands.registerCommand({ id: 'default:type' }, {
-            execute: args => {
-                const editor = MonacoEditor.getCurrent(this.editorManager);
-                if (editor) {
-                    editor.trigger('keyboard', 'type', args);
-                }
-            }
+        commands.registerCommand({ id: 'workbench.action.openSettings' }, {
+            execute: () => commands.executeCommand(CommonCommands.OPEN_PREFERENCES.id)
         });
         commands.registerCommand({ id: 'workbench.action.files.save', }, {
             execute: (uri?: monaco.Uri) => {
@@ -191,7 +218,7 @@ export class PluginVscodeCommandsContribution implements CommandContribution {
             execute: () => this.shell.saveAll()
         });
         commands.registerCommand({ id: 'workbench.action.closeActiveEditor' }, {
-            execute: (uri?: monaco.Uri) => {
+            execute: async (uri?: monaco.Uri) => {
                 let widget = this.editorManager.currentEditor || this.shell.currentWidget;
                 if (uri) {
                     const uriString = uri.toString();
@@ -200,13 +227,13 @@ export class PluginVscodeCommandsContribution implements CommandContribution {
                         return (resourceUri && resourceUri.toString()) === uriString;
                     });
                 }
-                if (NavigatableWidget.is(widget)) {
-                    widget.close();
+                if (CodeEditorWidget.is(widget)) {
+                    await this.shell.closeWidget(widget.id);
                 }
             }
         });
         commands.registerCommand({ id: 'workbench.action.closeOtherEditors' }, {
-            execute: (uri?: monaco.Uri) => {
+            execute: async (uri?: monaco.Uri) => {
                 let editor = this.editorManager.currentEditor || this.shell.currentWidget;
                 if (uri) {
                     const uriString = uri.toString();
@@ -216,8 +243,8 @@ export class PluginVscodeCommandsContribution implements CommandContribution {
                     });
                 }
                 for (const widget of this.shell.widgets) {
-                    if (NavigatableWidget.is(widget) && widget !== editor) {
-                        widget.close();
+                    if (CodeEditorWidget.is(widget) && widget !== editor) {
+                        await this.shell.closeWidget(widget.id);
                     }
                 }
             }
@@ -236,7 +263,7 @@ export class PluginVscodeCommandsContribution implements CommandContribution {
                     const tabBar = this.shell.getTabBarFor(editor);
                     if (tabBar) {
                         this.shell.closeTabs(tabBar,
-                            ({ owner }) => NavigatableWidget.is(owner) && owner !== editor
+                            ({ owner }) => CodeEditorWidget.is(owner)
                         );
                     }
                 }
@@ -250,7 +277,7 @@ export class PluginVscodeCommandsContribution implements CommandContribution {
                     for (const tabBar of this.shell.allTabBars) {
                         if (tabBar !== editorTabBar) {
                             this.shell.closeTabs(tabBar,
-                                ({ owner }) => NavigatableWidget.is(owner)
+                                ({ owner }) => CodeEditorWidget.is(owner)
                             );
                         }
                     }
@@ -270,7 +297,7 @@ export class PluginVscodeCommandsContribution implements CommandContribution {
                                     left = false;
                                     return false;
                                 }
-                                return left && NavigatableWidget.is(owner);
+                                return left && CodeEditorWidget.is(owner);
                             }
                         );
                     }
@@ -290,7 +317,7 @@ export class PluginVscodeCommandsContribution implements CommandContribution {
                                     left = false;
                                     return false;
                                 }
-                                return !left && NavigatableWidget.is(owner);
+                                return !left && CodeEditorWidget.is(owner);
                             }
                         );
                     }
@@ -298,18 +325,47 @@ export class PluginVscodeCommandsContribution implements CommandContribution {
             }
         });
         commands.registerCommand({ id: 'workbench.action.closeAllEditors' }, {
-            execute: () => {
+            execute: async () => {
+                const promises = [];
                 for (const widget of this.shell.widgets) {
-                    if (NavigatableWidget.is(widget)) {
-                        widget.close();
+                    if (CodeEditorWidget.is(widget)) {
+                        promises.push(this.shell.closeWidget(widget.id));
                     }
                 }
+                await Promise.all(promises);
             }
+        });
+        commands.registerCommand({ id: 'workbench.action.nextEditor' }, {
+            execute: () => this.shell.activateNextTab()
+        });
+        commands.registerCommand({ id: 'workbench.action.previousEditor' }, {
+            execute: () => this.shell.activatePreviousTab()
+        });
+
+        commands.registerCommand({ id: 'openInTerminal' }, {
+            execute: (resource: URI) => this.terminalContribution.openInTerminal(new TheiaURI(resource.toString()))
         });
 
         commands.registerCommand({ id: 'workbench.action.reloadWindow' }, {
             execute: () => {
                 window.location.reload();
+            }
+        });
+
+        commands.registerCommand({ id: 'workbench.action.revertAndCloseActiveEditor' }, {
+            execute: async () => {
+                const editor = this.editorManager.currentEditor;
+                if (editor) {
+                    const monacoEditor = MonacoEditor.getCurrent(this.editorManager);
+                    if (monacoEditor) {
+                        try {
+                            await monacoEditor.document.revert();
+                            editor.close();
+                        } catch (error) {
+                            await this.shell.closeWidget(editor.id, { save: false });
+                        }
+                    }
+                }
             }
         });
 
@@ -326,7 +382,108 @@ export class PluginVscodeCommandsContribution implements CommandContribution {
 
         // Register built-in language service commands
         // see https://code.visualstudio.com/api/references/commands
-        // tslint:disable: no-any
+        /* eslint-disable @typescript-eslint/no-explicit-any */
+
+        // TODO register other `vscode.execute...` commands.
+        // see https://github.com/microsoft/vscode/blob/master/src/vs/workbench/api/common/extHostApiCommands.ts
+        commands.registerCommand(
+            {
+                id: 'vscode.executeDefinitionProvider'
+            },
+            {
+                execute: ((resource: URI, position: Position) => {
+                    const args = {
+                        resource: monaco.Uri.from(resource),
+                        position: position
+                    };
+                    return commands.executeCommand<Location[]>('_executeDefinitionProvider', args);
+                })
+            }
+        );
+        commands.registerCommand(
+            {
+                id: 'vscode.executeDeclarationProvider'
+            },
+            {
+                execute: ((resource: URI, position: Position) => {
+                    const args = {
+                        resource: monaco.Uri.from(resource),
+                        position: position
+                    };
+                    return commands.executeCommand<Location[]>('_executeDeclarationProvider', args);
+                })
+            }
+        );
+        commands.registerCommand(
+            {
+                id: 'vscode.executeTypeDefinitionProvider'
+            },
+            {
+                execute: ((resource: URI, position: Position) => {
+                    const args = {
+                        resource: monaco.Uri.from(resource),
+                        position: position
+                    };
+                    return commands.executeCommand<Location[]>('_executeTypeDefinitionProvider', args);
+                })
+            }
+        );
+        commands.registerCommand(
+            {
+                id: 'vscode.executeImplementationProvider'
+            },
+            {
+                execute: ((resource: URI, position: Position) => {
+                    const args = {
+                        resource: monaco.Uri.from(resource),
+                        position: position
+                    };
+                    return commands.executeCommand<Location[]>('_executeImplementationProvider', args);
+                })
+            }
+        );
+        commands.registerCommand(
+            {
+                id: 'vscode.executeHoverProvider'
+            },
+            {
+                execute: ((resource: URI, position: Position) => {
+                    const args = {
+                        resource: monaco.Uri.from(resource),
+                        position: position
+                    };
+                    return commands.executeCommand<Hover[]>('_executeHoverProvider', args);
+                })
+            }
+        );
+        commands.registerCommand(
+            {
+                id: 'vscode.executeDocumentHighlights'
+            },
+            {
+                execute: ((resource: URI, position: Position) => {
+                    const args = {
+                        resource: monaco.Uri.from(resource),
+                        position: position
+                    };
+                    return commands.executeCommand<DocumentHighlight[]>('_executeDocumentHighlights', args);
+                })
+            }
+        );
+        commands.registerCommand(
+            {
+                id: 'vscode.executeReferenceProvider'
+            },
+            {
+                execute: ((resource: URI, position: Position) => {
+                    const args = {
+                        resource: monaco.Uri.from(resource),
+                        position: position
+                    };
+                    return commands.executeCommand<Location[]>('_executeReferenceProvider', args);
+                })
+            }
+        );
         commands.registerCommand(
             {
                 id: 'vscode.executeDocumentSymbolProvider'
@@ -334,7 +491,7 @@ export class PluginVscodeCommandsContribution implements CommandContribution {
             {
                 execute: (resource: URI) => commands.executeCommand('_executeDocumentSymbolProvider',
                     { resource: monaco.Uri.parse(resource.toString()) }
-                ).then((value: any) => {
+                ).then((value: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
                     if (!Array.isArray(value) || value === undefined) {
                         return undefined;
                     }
@@ -342,8 +499,123 @@ export class PluginVscodeCommandsContribution implements CommandContribution {
                 })
             }
         );
-        // TODO register other `vscode.execute...` commands.
-        // see https://github.com/microsoft/vscode/blob/master/src/vs/workbench/api/common/extHostApiCommands.ts
-    }
+        commands.registerCommand(
+            {
+                id: 'vscode.executeFormatDocumentProvider'
+            },
+            {
+                execute: ((resource: URI, options: FormattingOptions) => {
+                    const args = {
+                        resource: monaco.Uri.from(resource),
+                        options: options
+                    };
+                    return commands.executeCommand<TextEdit[]>('_executeFormatDocumentProvider', args);
+                })
+            }
+        );
+        commands.registerCommand(
+            {
+                id: 'vscode.executeFormatRangeProvider'
+            },
+            {
+                execute: ((resource: URI, range: Range, options: FormattingOptions) => {
+                    const args = {
+                        resource: monaco.Uri.from(resource),
+                        range: range,
+                        options: options
+                    };
+                    return commands.executeCommand<TextEdit[]>('_executeFormatRangeProvider', args);
+                })
+            }
+        );
+        commands.registerCommand(
+            {
+                id: 'vscode.executeFormatOnTypeProvider'
+            },
+            {
+                execute: ((resource: URI, position: Position, ch: string, options: FormattingOptions) => {
+                    const args = {
+                        resource: monaco.Uri.from(resource),
+                        position: position,
+                        ch: ch,
+                        options: options
+                    };
+                    return commands.executeCommand<TextEdit[]>('_executeFormatOnTypeProvider', args);
+                })
+            }
+        );
+        commands.registerCommand(
+            {
+                id: 'vscode.prepareCallHierarchy'
+            },
+            {
+                execute: ((resource: URI, position: Position) => {
+                    const args = {
+                        resource: monaco.Uri.from(resource),
+                        position: position
+                    };
+                    return commands.executeCommand<CallHierarchyItem[]>('_executePrepareCallHierarchy', args);
+                })
+            }
+        );
+        commands.registerCommand(
+            {
+                id: 'vscode.provideIncomingCalls'
+            },
+            {
+                execute: ((item: CallHierarchyItem) =>
+                    commands.executeCommand<CallHierarchyIncomingCall[]>('_executeProvideIncomingCalls', { item }))
+            }
+        );
+        commands.registerCommand(
+            {
+                id: 'vscode.provideOutgoingCalls'
+            },
+            {
+                execute: ((item: CallHierarchyItem) =>
+                    commands.executeCommand<CallHierarchyOutgoingCall[]>('_executeProvideOutgoingCalls', { item }))
+            }
+        );
 
+        commands.registerCommand({
+            id: 'workbench.action.openRecent'
+        }, {
+            execute: () => this.quickOpenWorkspace.select()
+        });
+        commands.registerCommand({
+            id: 'explorer.newFolder'
+        }, {
+            execute: () => commands.executeCommand(WorkspaceCommands.NEW_FOLDER.id)
+        });
+        commands.registerCommand({
+            id: 'workbench.action.terminal.sendSequence'
+        }, {
+            execute: (args?: { text?: string }) => {
+                if (args === undefined || args.text === undefined) {
+                    return;
+                }
+
+                const currentTerminal = this.terminalService.currentTerminal;
+
+                if (currentTerminal === undefined) {
+                    return;
+                }
+
+                currentTerminal.sendText(args.text);
+            }
+        });
+        commands.registerCommand({
+            id: 'workbench.action.terminal.kill'
+        }, {
+            execute: () => {
+                const currentTerminal = this.terminalService.currentTerminal;
+
+                if (currentTerminal === undefined) {
+                    return;
+                }
+
+                currentTerminal.dispose();
+            }
+        });
+    }
 }

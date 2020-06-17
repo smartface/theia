@@ -16,9 +16,10 @@
 
 import { injectable } from 'inversify';
 import { Disposable, DisposableCollection } from '@theia/core/lib/common/disposable';
-import { ThemeService, Theme, BuiltinThemeProvider } from '@theia/core/lib/browser/theming';
+import { ThemeService, Theme } from '@theia/core/lib/browser/theming';
 import { IconUrl } from '../../common/plugin-protocol';
 import { Reference, SyncReferenceCollection } from '@theia/core/lib/common/reference';
+import { Endpoint } from '@theia/core/lib/browser/endpoint';
 
 export interface PluginIconKey {
     url: IconUrl
@@ -85,7 +86,7 @@ export class PluginSharedStyle {
         const rules = sheet.rules || sheet.cssRules || [];
         for (let i = rules.length - 1; i >= 0; i--) {
             const rule = rules[i];
-            // tslint:disable-next-line:no-any
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             if ((<any>rule).selectorText.indexOf(selector) !== -1) {
                 sheet.deleteRule(i);
             }
@@ -101,8 +102,8 @@ export class PluginSharedStyle {
     protected createPluginIcon(key: PluginIconKey): PluginIcon {
         const iconUrl = key.url;
         const size = key.size;
-        const darkIconUrl = typeof iconUrl === 'object' ? iconUrl.dark : iconUrl;
-        const lightIconUrl = typeof iconUrl === 'object' ? iconUrl.light : iconUrl;
+        const darkIconUrl = PluginSharedStyle.toExternalIconUrl(`${typeof iconUrl === 'object' ? iconUrl.dark : iconUrl}`);
+        const lightIconUrl = PluginSharedStyle.toExternalIconUrl(`${typeof iconUrl === 'object' ? iconUrl.light : iconUrl}`);
         const iconClass = 'plugin-icon-' + this.iconSequence++;
         const toDispose = new DisposableCollection();
         toDispose.push(this.insertRule('.' + iconClass, theme => `
@@ -110,13 +111,20 @@ export class PluginSharedStyle {
                 background-position: 2px;
                 width: ${size}px;
                 height: ${size}px;
-                background: no-repeat url("${theme.id === BuiltinThemeProvider.lightTheme.id ? lightIconUrl : darkIconUrl}");
+                background: no-repeat url("${theme.type === 'light' ? lightIconUrl : darkIconUrl}");
                 background-size: ${size}px;
             `));
         return {
             iconClass,
             dispose: () => toDispose.dispose()
         };
+    }
+
+    static toExternalIconUrl(iconUrl: string): string {
+        if (iconUrl.startsWith('hostedPlugin/')) {
+            return new Endpoint({ path: iconUrl }).getRestUrl().toString();
+        }
+        return iconUrl;
     }
 
 }

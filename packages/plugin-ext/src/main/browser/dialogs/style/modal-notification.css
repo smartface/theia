@@ -28,10 +28,10 @@
     position: relative;
     width: 100%;
     min-width: 200px;
-    background-color: var(--theia-ui-dialog-color);
+    background-color: var(--theia-editorWidget-background);
     min-height: 35px;
     margin-bottom: 1px;
-    color: var(--theia-ui-dialog-font-color);
+    color: var(--theia-editorWidget-foreground);
 }
 
 .modal-Notification .icon {
@@ -46,15 +46,15 @@
     line-height: inherit;
     vertical-align: middle;
     font-size: 120%;
-    color: var(--theia-accent-color2);
+    color: var(--theia-editorInfo-foreground);
 }
 
 .modal-Notification .icon .error {
-    color: var(--theia-error-color1);
+    color: var(--theia-editorError-foreground);
 }
 
 .modal-Notification .icon .warning {
-    color: var(--theia-warn-color0);
+    color: var(--theia-editorWarning-foreground);
 }
 
 .modal-Notification .text {
@@ -89,8 +89,8 @@
 }
 
 .modal-Notification .buttons > button {
-    background-color: var(--theia-ui-button-color);
-    color: var(--theia-ui-button-font-color);
+    background-color: var(--theia-button-background);
+    color: var(--theia-button-foreground);
     border: none;
     border-radius: 0;
     text-align: center;
@@ -104,5 +104,10 @@
 }
 
 .modal-Notification .buttons > button:hover {
-    background-color: var(--theia-accent-color1);
+    background-color: var(--theia-button-hoverBackground);
+}
+
+.modal-Notification pre {
+    font-family: var(--theia-ui-font-family);
+    font-size: var(--theia-ui-font-size1);
 }

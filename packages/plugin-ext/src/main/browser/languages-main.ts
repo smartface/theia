@@ -36,11 +36,12 @@ import {
 } from '../../common/plugin-api-rpc';
 import { injectable, inject } from 'inversify';
 import {
-    SerializedDocumentFilter, MarkerData, Range, WorkspaceSymbolProvider, RelatedInformation,
-    MarkerSeverity, DocumentLink, WorkspaceSymbolParams, CodeAction
+    SerializedDocumentFilter, MarkerData, Range, RelatedInformation,
+    MarkerSeverity, DocumentLink, WorkspaceSymbolParams, CodeAction, CompletionDto
 } from '../../common/plugin-api-rpc-model';
 import { RPCProtocol } from '../../common/rpc-protocol';
 import { fromLanguageSelector } from '../../plugin/type-converters';
+import { DocumentFilter, MonacoModelIdentifier, testGlob } from 'monaco-languageclient/lib';
 import { MonacoLanguages } from '@theia/monaco/lib/browser/monaco-languages';
 import CoreURI from '@theia/core/lib/common/uri';
 import { Disposable, DisposableCollection } from '@theia/core/lib/common/disposable';
@@ -49,6 +50,14 @@ import { ProblemManager } from '@theia/markers/lib/browser';
 import * as vst from 'vscode-languageserver-types';
 import * as theia from '@theia/plugin';
 import { UriComponents } from '../../common/uri-components';
+import { CancellationToken } from '@theia/core/lib/common';
+import { LanguageSelector } from '@theia/languages/lib/common/language-selector';
+import { CallHierarchyService, CallHierarchyServiceProvider, Caller, Definition } from '@theia/callhierarchy/lib/browser';
+import { toDefinition, toUriComponents, fromDefinition, fromPosition, toCaller } from './callhierarchy/callhierarchy-type-converters';
+import { Position, DocumentUri } from 'vscode-languageserver-types';
+import { ObjectIdentifier } from '../../common/object-identifier';
+import { WorkspaceSymbolProvider } from '@theia/languages/lib/browser/language-client-services';
+import { mixin } from '../../common/types';
 
 @injectable()
 export class LanguagesMainImpl implements LanguagesMain, Disposable {
@@ -58,6 +67,9 @@ export class LanguagesMainImpl implements LanguagesMain, Disposable {
 
     @inject(ProblemManager)
     private readonly problemManager: ProblemManager;
+
+    @inject(CallHierarchyServiceProvider)
+    private readonly callHierarchyServiceContributionRegistry: CallHierarchyServiceProvider;
 
     private readonly proxy: LanguagesExt;
     private readonly services = new Map<number, Disposable>();
@@ -131,7 +143,9 @@ export class LanguagesMainImpl implements LanguagesMain, Disposable {
                 return undefined;
             }
             return {
-                suggestions: result.completions,
+                suggestions: result.completions.map(c => Object.assign(c, {
+                    range: c.range || result.defaultRange
+                })),
                 incomplete: result.incomplete,
                 dispose: () => this.proxy.$releaseCompletionItems(handle, result.id)
             };
@@ -140,7 +154,13 @@ export class LanguagesMainImpl implements LanguagesMain, Disposable {
 
     protected resolveCompletionItem(handle: number, model: monaco.editor.ITextModel, position: monaco.Position,
         item: monaco.languages.CompletionItem, token: monaco.CancellationToken): monaco.languages.ProviderResult<monaco.languages.CompletionItem> {
-        return this.proxy.$resolveCompletionItem(handle, model.uri, position, item, token);
+        const { parentId, id } = item as CompletionDto;
+        return this.proxy.$resolveCompletionItem(handle, parentId, id, token).then(resolved => {
+            if (resolved) {
+                mixin(item, resolved, true);
+            }
+            return item;
+        });
     }
 
     $registerDefinitionProvider(handle: number, pluginInfo: PluginInfo, selector: SerializedDocumentFilter[]): void {
@@ -345,7 +365,7 @@ export class LanguagesMainImpl implements LanguagesMain, Disposable {
         return this.proxy.$provideWorkspaceSymbols(handle, params.query, token);
     }
 
-    protected resolveWorkspaceSymbol(handle: number, symbol: vst.SymbolInformation, token: monaco.CancellationToken): Thenable<vst.SymbolInformation> {
+    protected resolveWorkspaceSymbol(handle: number, symbol: vst.SymbolInformation, token: monaco.CancellationToken): Thenable<vst.SymbolInformation | undefined> {
         return this.proxy.$resolveWorkspaceSymbol(handle, symbol, token);
     }
 
@@ -371,7 +391,9 @@ export class LanguagesMainImpl implements LanguagesMain, Disposable {
         return {
             links: links.map(link => this.toMonacoLink(link)),
             dispose: () => {
-                // TODO this.proxy.$releaseDocumentLinks(handle, links.cacheId);
+                if (links && Array.isArray(links)) {
+                    this.proxy.$releaseDocumentLinks(handle, links.map(link => ObjectIdentifier.of(link)));
+                }
             }
         };
     }
@@ -418,7 +440,9 @@ export class LanguagesMainImpl implements LanguagesMain, Disposable {
         return {
             lenses,
             dispose: () => {
-                // TODO this.proxy.$releaseCodeLenses
+                if (lenses && Array.isArray(lenses)) {
+                    this.proxy.$releaseCodeLenses(handle, lenses.map(symbol => ObjectIdentifier.of(symbol)));
+                }
             }
         };
     }
@@ -428,7 +452,7 @@ export class LanguagesMainImpl implements LanguagesMain, Disposable {
         return this.proxy.$resolveCodeLens(handle, model.uri, codeLens, token);
     }
 
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     $emitCodeLensEvent(eventHandle: number, event?: any): void {
         const obj = this.services.get(eventHandle);
         if (obj instanceof Emitter) {
@@ -610,6 +634,23 @@ export class LanguagesMainImpl implements LanguagesMain, Disposable {
         return this.proxy.$provideFoldingRange(handle, model.uri, context, token);
     }
 
+    $registerSelectionRangeProvider(handle: number, pluginInfo: PluginInfo, selector: SerializedDocumentFilter[]): void {
+        const languageSelector = fromLanguageSelector(selector);
+        const provider = this.createSelectionRangeProvider(handle);
+        this.register(handle, monaco.languages.registerSelectionRangeProvider(languageSelector, provider));
+    }
+
+    protected createSelectionRangeProvider(handle: number): monaco.languages.SelectionRangeProvider {
+        return {
+            provideSelectionRanges: (model, positions, token) => this.provideSelectionRanges(handle, model, positions, token)
+        };
+    }
+
+    protected provideSelectionRanges(handle: number, model: monaco.editor.ITextModel,
+        positions: monaco.Position[], token: monaco.CancellationToken): monaco.languages.ProviderResult<monaco.languages.SelectionRange[][]> {
+        return this.proxy.$provideSelectionRanges(handle, model.uri, positions, token);
+    }
+
     $registerDocumentColorProvider(handle: number, pluginInfo: PluginInfo, selector: SerializedDocumentFilter[]): void {
         const languageSelector = fromLanguageSelector(selector);
         const colorProvider = this.createColorProvider(handle);
@@ -706,6 +747,56 @@ export class LanguagesMainImpl implements LanguagesMain, Disposable {
     protected provideRenameEdits(handle: number, model: monaco.editor.ITextModel,
         position: monaco.Position, newName: string, token: monaco.CancellationToken): monaco.languages.ProviderResult<monaco.languages.WorkspaceEdit & monaco.languages.Rejection> {
         return this.proxy.$provideRenameEdits(handle, model.uri, position, newName, token).then(toMonacoWorkspaceEdit);
+    }
+
+    $registerCallHierarchyProvider(handle: number, selector: SerializedDocumentFilter[]): void {
+        const languageSelector = fromLanguageSelector(selector);
+        const callHierarchyService = this.createCallHierarchyService(handle, languageSelector);
+        this.register(handle, this.callHierarchyServiceContributionRegistry.add(callHierarchyService));
+    }
+
+    protected createCallHierarchyService(handle: number, language: LanguageSelector): CallHierarchyService {
+        return {
+            selector: language,
+            getRootDefinition: (uri: DocumentUri, position: Position, cancellationToken: CancellationToken) =>
+                this.proxy.$provideRootDefinition(handle, toUriComponents(uri), fromPosition(position), cancellationToken)
+                    .then(def => toDefinition(def)),
+            getCallers: (definition: Definition, cancellationToken: CancellationToken) => this.proxy.$provideCallers(handle, fromDefinition(definition), cancellationToken)
+                .then(result => {
+                    if (!result) {
+                        return undefined!;
+                    }
+
+                    if (Array.isArray(result)) {
+                        const callers: Caller[] = [];
+                        for (const item of result) {
+                            callers.push(toCaller(item));
+                        }
+                        return callers;
+                    }
+
+                    return undefined!;
+                })
+        };
+    }
+
+    protected matchModel(selector: LanguageSelector | undefined, model: MonacoModelIdentifier): boolean {
+        if (Array.isArray(selector)) {
+            return selector.some(filter => this.matchModel(filter, model));
+        }
+        if (DocumentFilter.is(selector)) {
+            if (!!selector.language && selector.language !== model.languageId) {
+                return false;
+            }
+            if (!!selector.scheme && selector.scheme !== model.uri.scheme) {
+                return false;
+            }
+            if (!!selector.pattern && !testGlob(selector.pattern, model.uri.path)) {
+                return false;
+            }
+            return true;
+        }
+        return selector === model.languageId;
     }
 
     protected resolveRenameLocation(handle: number, model: monaco.editor.ITextModel,

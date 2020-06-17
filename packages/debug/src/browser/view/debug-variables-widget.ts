@@ -24,6 +24,8 @@ import { DebugViewModel } from './debug-view-model';
 export class DebugVariablesWidget extends SourceTreeWidget {
 
     static CONTEXT_MENU: MenuPath = ['debug-variables-context-menu'];
+    static EDIT_MENU: MenuPath = [...DebugVariablesWidget.CONTEXT_MENU, 'a_edit'];
+    static WATCH_MENU: MenuPath = [...DebugVariablesWidget.CONTEXT_MENU, 'b_watch'];
     static createContainer(parent: interfaces.Container): Container {
         const child = SourceTreeWidget.createContainer(parent, {
             contextMenuPath: DebugVariablesWidget.CONTEXT_MENU,

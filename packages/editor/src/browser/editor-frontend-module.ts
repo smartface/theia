@@ -14,6 +14,8 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  ********************************************************************************/
 
+import '../../src/browser/style/index.css';
+
 import { ContainerModule } from 'inversify';
 import { CommandContribution, MenuContribution } from '@theia/core/lib/common';
 import { OpenHandler, WidgetFactory, FrontendApplicationContribution, KeybindingContext, KeybindingContribution, QuickOpenContribution } from '@theia/core/lib/browser';
@@ -43,8 +45,11 @@ export default new ContainerModule(bind => {
     bind(EditorManager).toSelf().inSingletonScope();
     bind(OpenHandler).toService(EditorManager);
 
-    bind(CommandContribution).to(EditorCommandContribution).inSingletonScope();
-    bind(MenuContribution).to(EditorMenuContribution).inSingletonScope();
+    bind(EditorCommandContribution).toSelf().inSingletonScope();
+    bind(CommandContribution).toService(EditorCommandContribution);
+
+    bind(EditorMenuContribution).toSelf().inSingletonScope();
+    bind(MenuContribution).toService(EditorMenuContribution);
 
     bind(StrictEditorTextFocusContext).toSelf().inSingletonScope();
     bind(KeybindingContext).toService(StrictEditorTextFocusContext);

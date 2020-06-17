@@ -62,12 +62,17 @@ import { MimeService } from '@theia/core/lib/browser/mime-service';
 import { MonacoEditorServices } from './monaco-editor';
 import { MonacoColorRegistry } from './monaco-color-registry';
 import { ColorRegistry } from '@theia/core/lib/browser/color-registry';
+import { MonacoThemingService } from './monaco-theming-service';
 
 decorate(injectable(), MonacoToProtocolConverter);
 decorate(injectable(), ProtocolToMonacoConverter);
 decorate(injectable(), monaco.contextKeyService.ContextKeyService);
 
+MonacoThemingService.init();
+
 export default new ContainerModule((bind, unbind, isBound, rebind) => {
+    bind(MonacoThemingService).toSelf().inSingletonScope();
+
     bind(MonacoContextKeyService).toSelf().inSingletonScope();
     rebind(ContextKeyService).toService(MonacoContextKeyService);
 
@@ -147,7 +152,7 @@ export function createMonacoConfigurationService(container: interfaces.Container
     _configuration.getValue = (section, overrides, workspace) => {
         const overrideIdentifier = overrides && 'overrideIdentifier' in overrides && overrides['overrideIdentifier'] as string || undefined;
         const resourceUri = overrides && 'resource' in overrides && overrides['resource'].toString();
-        // tslint:disable-next-line:no-any
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const proxy = createPreferenceProxy<{ [key: string]: any }>(preferences, preferenceSchemaProvider.getCombinedSchema(), {
             resourceUri, overrideIdentifier, style: 'both'
         });

@@ -32,7 +32,7 @@ import { ClipboardExt } from '../../../plugin/clipboard-ext';
 import { KeyValueStorageProxy } from '../../../plugin/plugin-storage';
 import { WebviewsExtImpl } from '../../../plugin/webviews';
 
-// tslint:disable-next-line:no-any
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const ctx = self as any;
 
 const pluginsApiImpl = new Map<string, typeof theia>();
@@ -45,7 +45,7 @@ const rpc = new RPCProtocolImpl({
         ctx.postMessage(m);
     }
 });
-// tslint:disable-next-line:no-any
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 addEventListener('message', (message: any) => {
     emitter.fire(message.data);
 });
@@ -63,12 +63,14 @@ const clipboardExt = new ClipboardExt(rpc);
 const webviewExt = new WebviewsExtImpl(rpc, workspaceExt);
 
 const pluginManager = new PluginManagerExtImpl({
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     loadPlugin(plugin: Plugin): any {
-        if (isElectron()) {
-            ctx.importScripts(plugin.pluginPath);
-        } else {
-            ctx.importScripts('/hostedPlugin/' + getPluginId(plugin.model) + '/' + plugin.pluginPath);
+        if (plugin.pluginPath) {
+            if (isElectron()) {
+                ctx.importScripts(plugin.pluginPath);
+            } else {
+                ctx.importScripts('/hostedPlugin/' + getPluginId(plugin.model) + '/' + plugin.pluginPath);
+            }
         }
 
         if (plugin.lifecycle.frontendModuleName) {
@@ -107,7 +109,7 @@ const pluginManager = new PluginManagerExtImpl({
                 pluginsModulesNames.set(plugin.lifecycle.frontendModuleName!, plugin);
             } else {
                 foreign.push({
-                    pluginPath: pluginModel.entryPoint.backend!,
+                    pluginPath: pluginModel.entryPoint.backend,
                     pluginFolder: pluginModel.packagePath,
                     model: pluginModel,
                     lifecycle: pluginLifecycle,
@@ -150,7 +152,7 @@ const apiFactory = createAPIFactory(
 let defaultApi: typeof theia;
 
 const handler = {
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     get: (target: any, name: string) => {
         const plugin = pluginsModulesNames.get(name);
         if (plugin) {
@@ -165,7 +167,6 @@ const handler = {
         return defaultApi;
     }
 };
-// tslint:disable-next-line:no-null-keyword
 ctx['theia'] = new Proxy(Object.create(null), handler);
 
 rpc.set(MAIN_RPC_CONTEXT.HOSTED_PLUGIN_MANAGER_EXT, pluginManager);

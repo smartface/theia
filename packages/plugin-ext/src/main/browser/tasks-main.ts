@@ -52,7 +52,7 @@ export class TasksMainImpl implements TasksMain, Disposable {
         this.toDispose.push(this.taskWatcher.onTaskCreated((event: TaskInfo) => {
             this.proxy.$onDidStartTask({
                 id: event.taskId,
-                task: event.config
+                task: this.fromTaskConfiguration(event.config)
             });
         }));
 
@@ -64,7 +64,7 @@ export class TasksMainImpl implements TasksMain, Disposable {
             if (event.processId !== undefined) {
                 this.proxy.$onDidStartTaskProcess(event.processId, {
                     id: event.taskId,
-                    task: event.config
+                    task: this.fromTaskConfiguration(event.config)
                 });
             }
         }));
@@ -105,42 +105,26 @@ export class TasksMainImpl implements TasksMain, Disposable {
             return [];
         }
 
-        let found: TaskConfiguration[] = [];
-        const tasks = [...(await this.taskService.getConfiguredTasks()), ...(await this.taskService.getProvidedTasks())];
-        if (taskType) {
-            found = tasks.filter(t => {
-                if (!!this.taskDefinitionRegistry.getDefinition(t)) {
-                    return t._source === taskType;
+        const [configured, provided] = await Promise.all([
+            this.taskService.getConfiguredTasks(),
+            this.taskService.getProvidedTasks()
+        ]);
+        const result: TaskDto[] = [];
+        for (const tasks of [configured, provided]) {
+            for (const task of tasks) {
+                if (!taskType || (!!this.taskDefinitionRegistry.getDefinition(task) ? task._source === taskType : task.type === taskType)) {
+                    const { type, label, _scope, _source, ...properties } = task;
+                    const dto: TaskDto = { type, label, scope: _scope, source: _source };
+                    for (const key in properties) {
+                        if (properties.hasOwnProperty(key)) {
+                            dto[key] = properties[key];
+                        }
+                    }
+                    result.push(dto);
                 }
-                return t.type === taskType;
-            });
-        } else {
-            found = tasks;
+            }
         }
-
-        const filtered: TaskConfiguration[] = [];
-        found.forEach((taskConfig, index) => {
-            const rest = found.slice(index + 1);
-            const isDuplicate = rest.some(restTask => this.taskDefinitionRegistry.compareTasks(taskConfig, restTask));
-            if (!isDuplicate) {
-                filtered.push(taskConfig);
-            }
-        });
-        return filtered.map(taskConfig => {
-            const dto: TaskDto = {
-                type: taskConfig.type,
-                label: taskConfig.label
-            };
-            const { _scope, _source, ...properties } = taskConfig;
-            dto.scope = _scope;
-            dto.source = _source;
-            for (const key in properties) {
-                if (properties.hasOwnProperty(key)) {
-                    dto[key] = properties[key];
-                }
-            }
-            return dto;
-        });
+        return result;
     }
 
     async $executeTask(taskDto: TaskDto): Promise<TaskExecutionDto | undefined> {
@@ -149,19 +133,19 @@ export class TasksMainImpl implements TasksMain, Disposable {
         if (taskInfo) {
             return {
                 id: taskInfo.taskId,
-                task: taskInfo.config
+                task: this.fromTaskConfiguration(taskInfo.config)
             };
         }
     }
 
     async $taskExecutions(): Promise<{
         id: number;
-        task: TaskConfiguration;
+        task: TaskDto;
     }[]> {
         const runningTasks = await this.taskService.getRunningTasks();
         return runningTasks.map(taskInfo => ({
             id: taskInfo.taskId,
-            task: taskInfo.config
+            task: this.fromTaskConfiguration(taskInfo.config)
         }));
     }
 
@@ -183,7 +167,7 @@ export class TasksMainImpl implements TasksMain, Disposable {
     protected createTaskResolver(handle: number): TaskResolver {
         return {
             resolveTask: taskConfig =>
-                this.proxy.$resolveTask(handle, taskConfig).then(v =>
+                this.proxy.$resolveTask(handle, this.fromTaskConfiguration(taskConfig)).then(v =>
                     this.toTaskConfiguration(v!)
                 )
         };
@@ -191,8 +175,16 @@ export class TasksMainImpl implements TasksMain, Disposable {
 
     protected toTaskConfiguration(taskDto: TaskDto): TaskConfiguration {
         return Object.assign(taskDto, {
-            _source: taskDto.source || 'plugin',
+            _source: taskDto.source,
             _scope: taskDto.scope
         });
     }
+
+    protected fromTaskConfiguration(task: TaskConfiguration): TaskDto {
+        return Object.assign(task, {
+            source: task._source,
+            scope: task._scope
+        });
+    }
+
 }

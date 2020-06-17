@@ -19,7 +19,7 @@ import { DebugAdapterSessionImpl } from '@theia/debug/lib/node/debug-adapter-ses
 import * as theia from '@theia/plugin';
 import { IWebSocket } from 'vscode-ws-jsonrpc/lib/socket/socket';
 
-// tslint:disable: no-any
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 /**
  * Server debug adapter session.
@@ -71,14 +71,14 @@ export class PluginDebugAdapterSession extends DebugAdapterSessionImpl implement
             super.send(message);
         } finally {
             if (this.tracker.onDidSendMessage) {
-                this.tracker.onDidSendMessage(message);
+                this.tracker.onDidSendMessage(JSON.parse(message));
             }
         }
     }
 
     protected write(message: string): void {
         if (this.tracker.onWillReceiveMessage) {
-            this.tracker.onWillReceiveMessage(message);
+            this.tracker.onWillReceiveMessage(JSON.parse(message));
         }
         super.write(message);
     }

@@ -19,7 +19,7 @@
  *--------------------------------------------------------------------------------------------*/
 // some code copied and modified from https://github.com/microsoft/vscode/blob/da5fb7d5b865aa522abc7e82c10b746834b98639/src/vs/workbench/api/node/extHostExtensionService.ts
 
-// tslint:disable:no-any
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 import debounce = require('lodash.debounce');
 import { UUID } from '@phosphor/coreutils';
@@ -27,7 +27,7 @@ import { injectable, inject, interfaces, named, postConstruct } from 'inversify'
 import { PluginWorker } from '../../main/browser/plugin-worker';
 import { PluginMetadata, getPluginId, HostedPluginServer, DeployedPlugin } from '../../common/plugin-protocol';
 import { HostedPluginWatcher } from './hosted-plugin-watcher';
-import { MAIN_RPC_CONTEXT, PluginManagerExt } from '../../common/plugin-api-rpc';
+import { MAIN_RPC_CONTEXT, PluginManagerExt, ConfigStorage } from '../../common/plugin-api-rpc';
 import { setUpPluginApi } from '../../main/browser/main-context';
 import { RPCProtocol, RPCProtocolImpl } from '../../common/rpc-protocol';
 import {
@@ -43,11 +43,11 @@ import { MainPluginApiProvider } from '../../common/plugin-ext-api-contribution'
 import { PluginPathsService } from '../../main/common/plugin-paths-protocol';
 import { getPreferences } from '../../main/browser/preference-registry-main';
 import { PluginServer } from '../../common/plugin-protocol';
-import { MonacoTextmateService } from '@theia/monaco/lib/browser/textmate';
 import { Deferred } from '@theia/core/lib/common/promise-util';
 import { DebugSessionManager } from '@theia/debug/lib/browser/debug-session-manager';
 import { DebugConfigurationManager } from '@theia/debug/lib/browser/debug-configuration-manager';
 import { WaitUntilEvent } from '@theia/core/lib/common/event';
+import { FileSystem } from '@theia/filesystem/lib/common';
 import { FileSearchService } from '@theia/file-search/lib/common/file-search-service';
 import { Emitter, isCancelled } from '@theia/core';
 import { FrontendApplicationStateService } from '@theia/core/lib/browser/frontend-application-state';
@@ -57,6 +57,9 @@ import { WebviewEnvironment } from '../../main/browser/webview/webview-environme
 import { WebviewWidget } from '../../main/browser/webview/webview';
 import { WidgetManager } from '@theia/core/lib/browser/widget-manager';
 import { TerminalService } from '@theia/terminal/lib/browser/base/terminal-service';
+import { EnvVariablesServer } from '@theia/core/lib/common/env-variables';
+import URI from '@theia/core/lib/common/uri';
+import { FrontendApplicationConfigProvider } from '@theia/core/lib/browser/frontend-application-config-provider';
 
 export type PluginHost = 'frontend' | string;
 export type DebugActivationEvent = 'onDebugResolve' | 'onDebugInitialConfigurations' | 'onDebugAdapterProtocolTracker';
@@ -101,9 +104,6 @@ export class HostedPluginSupport {
     @inject(WorkspaceService)
     protected readonly workspaceService: WorkspaceService;
 
-    @inject(MonacoTextmateService)
-    protected readonly monacoTextmateService: MonacoTextmateService;
-
     @inject(CommandRegistry)
     protected readonly commands: CommandRegistry;
 
@@ -112,6 +112,9 @@ export class HostedPluginSupport {
 
     @inject(DebugConfigurationManager)
     protected readonly debugConfigurationManager: DebugConfigurationManager;
+
+    @inject(FileSystem)
+    protected readonly fileSystem: FileSystem;
 
     @inject(FileSearchService)
     protected readonly fileSearchService: FileSearchService;
@@ -140,6 +143,9 @@ export class HostedPluginSupport {
     @inject(TerminalService)
     protected readonly terminalService: TerminalService;
 
+    @inject(EnvVariablesServer)
+    protected readonly envServer: EnvVariablesServer;
+
     private theiaReadyPromise: Promise<any>;
 
     protected readonly managers = new Map<string, PluginManagerExt>();
@@ -151,15 +157,33 @@ export class HostedPluginSupport {
     protected readonly onDidChangePluginsEmitter = new Emitter<void>();
     readonly onDidChangePlugins = this.onDidChangePluginsEmitter.event;
 
+    protected readonly deferredWillStart = new Deferred<void>();
+    /**
+     * Resolves when the initial plugins are loaded and about to be started.
+     */
+    get willStart(): Promise<void> {
+        return this.deferredWillStart.promise;
+    }
+
+    protected readonly deferredDidStart = new Deferred<void>();
+    /**
+     * Resolves when the initial plugins are started.
+     */
+    get didStart(): Promise<void> {
+        return this.deferredDidStart.promise;
+    }
+
     @postConstruct()
     protected init(): void {
         this.theiaReadyPromise = Promise.all([this.preferenceServiceImpl.ready, this.workspaceService.roots]);
         this.workspaceService.onWorkspaceChanged(() => this.updateStoragePath());
 
-        for (const id of this.monacoTextmateService.activatedLanguages) {
-            this.activateByLanguage(id);
+        const modeService = monaco.services.StaticServices.modeService.get();
+        for (const modeId of Object.keys(modeService['_instantiatedModes'])) {
+            const mode = modeService['_instantiatedModes'][modeId];
+            this.activateByLanguage(mode.getId());
         }
-        this.monacoTextmateService.onDidActivateLanguage(id => this.activateByLanguage(id));
+        modeService.onDidCreateMode(mode => this.activateByLanguage(mode.getId()));
         this.commands.onWillExecuteCommand(event => this.ensureCommandHandlerRegistration(event));
         this.debugSessionManager.onWillStartDebugSession(event => this.ensureDebugActivation(event));
         this.debugSessionManager.onWillResolveDebugConfiguration(event => this.ensureDebugActivation(event, 'onDebugResolve', event.debugType));
@@ -195,6 +219,11 @@ export class HostedPluginSupport {
         return plugins;
     }
 
+    getPlugin(id: string): DeployedPlugin | undefined {
+        const contributions = this.contributions.get(id);
+        return contributions && contributions.plugin;
+    }
+
     /** do not call it, except from the plugin frontend contribution */
     onStart(container: interfaces.Container): void {
         this.container = container;
@@ -220,6 +249,10 @@ export class HostedPluginSupport {
         // process empty plugins as well in order to properly remove stale plugin widgets
         await this.syncPlugins();
 
+        // it has to be resolved before awaiting layout is initialized
+        // otherwise clients can hang forever in the initialization phase
+        this.deferredWillStart.resolve();
+
         // make sure that the previous state, including plugin widgets, is restored
         // and core layout is initialized, i.e. explorer, scm, debug views are already added to the shell
         // but shell is not yet revealed
@@ -241,6 +274,9 @@ export class HostedPluginSupport {
             return;
         }
         await this.startPlugins(contributionsByHost, toDisconnect);
+
+        this.deferredDidStart.resolve();
+
         this.restoreWebviews();
     }
 
@@ -332,15 +368,20 @@ export class HostedPluginSupport {
         let started = 0;
         const startPluginsMeasurement = this.createMeasurement('startPlugins');
 
-        const [hostLogPath, hostStoragePath] = await Promise.all([
+        const [hostLogPath, hostStoragePath, hostGlobalStoragePath] = await Promise.all([
             this.pluginPathsService.getHostLogPath(),
-            this.getStoragePath()
+            this.getStoragePath(),
+            this.getHostGlobalStoragePath()
         ]);
         if (toDisconnect.disposed) {
             return;
         }
         const thenable: Promise<void>[] = [];
-        const configStorage = { hostLogPath, hostStoragePath };
+        const configStorage: ConfigStorage = {
+            hostLogPath,
+            hostStoragePath,
+            hostGlobalStoragePath
+        };
         for (const [host, hostContributions] of contributionsByHost) {
             const manager = await this.obtainManager(host, hostContributions, toDisconnect);
             if (!manager) {
@@ -412,7 +453,8 @@ export class HostedPluginSupport {
                 env: {
                     queryParams: getQueryParameters(),
                     language: navigator.language,
-                    shell: defaultShell
+                    shell: defaultShell,
+                    appName: FrontendApplicationConfigProvider.get().applicationName
                 },
                 extApi,
                 webview: {
@@ -456,6 +498,21 @@ export class HostedPluginSupport {
     protected async getStoragePath(): Promise<string | undefined> {
         const roots = await this.workspaceService.roots;
         return this.pluginPathsService.getHostStoragePath(this.workspaceService.workspace, roots);
+    }
+
+    protected async getHostGlobalStoragePath(): Promise<string> {
+        const configDirUri = await this.envServer.getConfigDirUri();
+        const globalStorageFolderUri = new URI(configDirUri).resolve('globalStorage').toString();
+
+        // Make sure that folder by the path exists
+        if (!await this.fileSystem.exists(globalStorageFolderUri)) {
+            await this.fileSystem.createFolder(globalStorageFolderUri);
+        }
+        const globalStorageFolderFsPath = await this.fileSystem.getFsPath(globalStorageFolderUri);
+        if (!globalStorageFolderFsPath) {
+            throw new Error(`Could not resolve the FS path for URI: ${globalStorageFolderUri}`);
+        }
+        return globalStorageFolderFsPath;
     }
 
     async activateByEvent(activationEvent: string): Promise<void> {
@@ -576,6 +633,14 @@ export class HostedPluginSupport {
         }
     }
 
+    async activatePlugin(id: string): Promise<void> {
+        const activation = [];
+        for (const manager of this.managers.values()) {
+            activation.push(manager.$activatePlugin(id));
+        }
+        await Promise.all(activation);
+    }
+
     protected createMeasurement(name: string): () => number {
         const startMarker = `${name}-start`;
         const endMarker = `${name}-end`;
@@ -587,7 +652,10 @@ export class HostedPluginSupport {
         return () => {
             performance.mark(endMarker);
             performance.measure(name, startMarker, endMarker);
-            const duration = performance.getEntriesByName(name)[0].duration;
+
+            const entries = performance.getEntriesByName(name);
+            const duration = entries.length > 0 ? entries[0].duration : Number.NaN;
+
             performance.clearMeasures(name);
             performance.clearMarks(startMarker);
             performance.clearMarks(endMarker);
@@ -596,8 +664,14 @@ export class HostedPluginSupport {
     }
 
     protected logMeasurement(prefix: string, count: number, measurement: () => number): void {
+        const duration = measurement();
+        if (duration === Number.NaN) {
+            // Measurement was prevented by native API, do not log NaN duration
+            return;
+        }
+
         const pluginCount = `${count} plugin${count === 1 ? '' : 's'}`;
-        console.log(`[${this.clientId}] ${prefix} of ${pluginCount} took: ${measurement()} ms`);
+        console.log(`[${this.clientId}] ${prefix} of ${pluginCount} took: ${duration.toFixed(1)} ms`);
     }
 
     protected readonly webviewsToRestore = new Set<WebviewWidget>();
@@ -638,10 +712,12 @@ export class HostedPluginSupport {
         await this.activateByEvent(`onWebviewPanel:${webview.viewType}`);
         const restore = this.webviewRevivers.get(webview.viewType);
         if (!restore) {
+            /* eslint-disable max-len */
             webview.setHTML(this.getDeserializationFailedContents(`
             <p>The extension providing '${webview.viewType}' view is not capable of restoring it.</p>
             <p>Want to help fix this? Please inform the extension developer to register a <a href="https://code.visualstudio.com/api/extension-guides/webview#serialization">reviver</a>.</p>
             `));
+            /* eslint-enable max-len */
             return;
         }
         try {

@@ -435,13 +435,13 @@ export namespace Git {
              * The exit codes which indicate success to the caller. Unexpected exit codes will be logged and an
              * error thrown. Defaults to `0` if `undefined`.
              */
-            readonly successExitCodes?: ReadonlySet<number>;
+            readonly successExitCodes?: ReadonlyArray<number>;
 
             /**
              * The Git errors which are expected by the caller. Unexpected errors will
              * be logged and an error thrown.
              */
-            readonly expectedErrors?: ReadonlySet<GitError>;
+            readonly expectedErrors?: ReadonlyArray<GitError>;
 
             /**
              * An optional collection of key-value pairs which will be
@@ -546,11 +546,6 @@ export namespace Git {
              * Decides whether the commit hash should be the abbreviated version.
              */
             readonly shortSha?: boolean;
-
-            /**
-             * Return only commits reached by following the first parent, giving a linear list of commits.
-             */
-            readonly firstParent?: boolean;
         }
 
         /**
@@ -668,10 +663,13 @@ export interface Git extends Disposable {
      * @param the repository where the branch modification has to be performed.
      * @param options further Git command refinements for the branch modification.
      */
+    /* eslint-disable @typescript-eslint/indent */
     branch(repository: Repository, options:
         Git.Options.BranchCommand.Create |
         Git.Options.BranchCommand.Rename |
-        Git.Options.BranchCommand.Delete): Promise<void>;
+        Git.Options.BranchCommand.Delete
+    ): Promise<void>;
+    /* eslint-enable @typescript-eslint/indent */
 
     /**
      * Switches branches or restores working tree files.
@@ -842,7 +840,7 @@ export interface Git extends Disposable {
      * @param uri the URI of the file to check.
      * @param options further options for the command executions.
      */
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     lsFiles(repository: Repository, uri: string, options?: Git.Options.LsFiles): Promise<any>;
 
 }
@@ -855,7 +853,7 @@ export namespace GitUtils {
     /**
      * `true` if the argument is an option for renaming an existing branch in the repository.
      */
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     export function isBranchRename(arg: any | undefined): arg is Git.Options.BranchCommand.Rename {
         return !!arg && ('newName' in arg);
     }
@@ -863,7 +861,7 @@ export namespace GitUtils {
     /**
      * `true` if the argument is an option for deleting an existing branch in the repository.
      */
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     export function isBranchDelete(arg: any | undefined): arg is Git.Options.BranchCommand.Delete {
         return !!arg && ('toDelete' in arg);
     }
@@ -871,7 +869,7 @@ export namespace GitUtils {
     /**
      * `true` if the argument is an option for creating a new branch in the repository.
      */
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     export function isBranchCreate(arg: any | undefined): arg is Git.Options.BranchCommand.Create {
         return !!arg && ('toCreate' in arg);
     }
@@ -879,7 +877,7 @@ export namespace GitUtils {
     /**
      * `true` if the argument is an option for listing the branches in a repository.
      */
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     export function isBranchList(arg: any | undefined): arg is Git.Options.BranchCommand.List {
         return !!arg && ('type' in arg);
     }
@@ -887,7 +885,7 @@ export namespace GitUtils {
     /**
      * `true` if the argument is an option for checking out a new local branch.
      */
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     export function isBranchCheckout(arg: any | undefined): arg is Git.Options.Checkout.CheckoutBranch {
         return !!arg && ('branch' in arg);
     }
@@ -895,7 +893,7 @@ export namespace GitUtils {
     /**
      * `true` if the argument is an option for checking out a working tree file.
      */
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     export function isWorkingTreeFileCheckout(arg: any | undefined): arg is Git.Options.Checkout.WorkingTreeFile {
         return !!arg && ('paths' in arg);
     }
@@ -909,12 +907,12 @@ export namespace GitUtils {
      * `true` if the argument is an error indicating the absence of a local Git repository.
      * Otherwise, `false`.
      */
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     export function isRepositoryDoesNotExistError(error: any | undefined): boolean {
         // TODO this is odd here.This piece of code is already implementation specific, so this should go to the Git API.
         // But how can we ensure that the `any` type error is serializable?
         if (error instanceof Error && ('code' in error)) {
-            // tslint:disable-next-line:no-any
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             return (<any>error).code === RepositoryDoesNotExistErrorCode;
         }
         return false;

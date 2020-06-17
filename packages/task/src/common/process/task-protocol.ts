@@ -51,41 +51,41 @@ export interface CommandOptions {
     };
 }
 
-export interface CommandProperties<T = string> {
+export interface CommandProperties {
     readonly command?: string;
-    readonly args?: T[];
+    readonly args?: string[];
     readonly options?: CommandOptions;
 }
 
 /** Configuration of a Task that may be run as a process or a command inside a shell. */
-export interface ProcessTaskConfiguration<T = string> extends TaskConfiguration, CommandProperties<T> {
+export interface ProcessTaskConfiguration extends TaskConfiguration, CommandProperties {
     readonly type: ProcessType;
 
     /**
      * Windows specific task configuration
      */
-    readonly windows?: CommandProperties<T>;
+    readonly windows?: CommandProperties;
 
     /**
      * macOS specific task configuration
      */
-    readonly osx?: CommandProperties<T>;
+    readonly osx?: CommandProperties;
 
     /**
      * Linux specific task configuration
      */
-    readonly linux?: CommandProperties<T>;
+    readonly linux?: CommandProperties;
 }
 
 export interface ProcessTaskInfo extends TaskInfo {
-    /** terminal id. Defined if task is run as a terminal process */
-    readonly terminalId?: number;
     /** process id. Defined if task is run as a process */
     readonly processId?: number;
+    /** process task command */
+    readonly command?: string;
 }
 export namespace ProcessTaskInfo {
     export function is(info: TaskInfo): info is ProcessTaskInfo {
-        return info['terminalId'] !== undefined || info['processId'] !== undefined;
+        return info['processId'] !== undefined;
     }
 }
 

@@ -14,19 +14,20 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  ********************************************************************************/
 
-import { AbstractViewContribution, ApplicationShell, KeybindingRegistry, Widget } from '@theia/core/lib/browser';
+import { AbstractViewContribution, ApplicationShell, KeybindingRegistry, Widget, CompositeTreeNode, LabelProvider } from '@theia/core/lib/browser';
 import { injectable, inject } from 'inversify';
 import { ThemeService } from '@theia/core/lib/browser/theming';
 import { MenuModelRegistry, CommandRegistry, MAIN_MENU_BAR, Command, Emitter, Mutable } from '@theia/core/lib/common';
 import { DebugViewLocation } from '../common/debug-configuration';
-import { EditorKeybindingContexts } from '@theia/editor/lib/browser';
+import { EditorKeybindingContexts, EditorManager } from '@theia/editor/lib/browser';
 import { DebugSessionManager } from './debug-session-manager';
 import { DebugWidget } from './view/debug-widget';
+import { FunctionBreakpoint } from './breakpoint/breakpoint-marker';
 import { BreakpointManager } from './breakpoint/breakpoint-manager';
 import { DebugConfigurationManager } from './debug-configuration-manager';
 import { DebugState, DebugSession } from './debug-session';
 import { DebugBreakpointsWidget } from './view/debug-breakpoints-widget';
-import { DebugBreakpoint } from './model/debug-breakpoint';
+import { DebugSourceBreakpoint } from './model/debug-source-breakpoint';
 import { DebugThreadsWidget } from './view/debug-threads-widget';
 import { DebugThread } from './model/debug-thread';
 import { DebugStackFramesWidget } from './view/debug-stack-frames-widget';
@@ -42,7 +43,14 @@ import { DebugService } from '../common/debug-service';
 import { DebugSchemaUpdater } from './debug-schema-updater';
 import { DebugPreferences } from './debug-preferences';
 import { TabBarToolbarContribution, TabBarToolbarRegistry, TabBarToolbarItem } from '@theia/core/lib/browser/shell/tab-bar-toolbar';
+import { DebugWatchWidget } from './view/debug-watch-widget';
+import { DebugWatchExpression } from './view/debug-watch-expression';
+import { DebugWatchManager } from './debug-watch-manager';
 import { DebugSessionOptions } from './debug-session-options';
+import { ColorContribution } from '@theia/core/lib/browser/color-application-contribution';
+import { ColorRegistry } from '@theia/core/lib/browser/color-registry';
+import { DebugFunctionBreakpoint } from './model/debug-function-breakpoint';
+import { DebugBreakpoint } from './model/debug-breakpoint';
 
 export namespace DebugMenus {
     export const DEBUG = [...MAIN_MENU_BAR, '6_debug'];
@@ -50,7 +58,9 @@ export namespace DebugMenus {
     export const DEBUG_CONFIGURATION = [...DEBUG, 'b_configuration'];
     export const DEBUG_THREADS = [...DEBUG, 'c_threads'];
     export const DEBUG_SESSIONS = [...DEBUG, 'd_sessions'];
-    export const DEBUG_BREAKPOINTS = [...DEBUG, 'e_breakpoints'];
+    export const DEBUG_BREAKPOINT = [...DEBUG, 'e_breakpoint'];
+    export const DEBUG_NEW_BREAKPOINT = [...DEBUG_BREAKPOINT, 'a_new_breakpoint'];
+    export const DEBUG_BREAKPOINTS = [...DEBUG, 'f_breakpoints'];
 }
 
 export namespace DebugCommands {
@@ -136,6 +146,11 @@ export namespace DebugCommands {
         category: DEBUG_CATEGORY,
         label: 'Toggle Breakpoint',
     };
+    export const INLINE_BREAKPOINT: Command = {
+        id: 'editor.debug.action.inlineBreakpoint',
+        category: DEBUG_CATEGORY,
+        label: 'Inline Breakpoint',
+    };
     export const ADD_CONDITIONAL_BREAKPOINT: Command = {
         id: 'debug.breakpoint.add.conditional',
         category: DEBUG_CATEGORY,
@@ -145,6 +160,11 @@ export namespace DebugCommands {
         id: 'debug.breakpoint.add.logpoint',
         category: DEBUG_CATEGORY,
         label: 'Add Logpoint...',
+    };
+    export const ADD_FUNCTION_BREAKPOINT: Command = {
+        id: 'debug.breakpoint.add.function',
+        category: DEBUG_CATEGORY,
+        label: 'Add Function Breakpoint...',
     };
     export const ENABLE_ALL_BREAKPOINTS: Command = {
         id: 'debug.breakpoint.enableAll',
@@ -214,6 +234,42 @@ export namespace DebugCommands {
         id: 'debug.variable.copyAsExpression',
         category: DEBUG_CATEGORY,
         label: 'Copy As Expression',
+    };
+    export const WATCH_VARIABLE: Command = {
+        id: 'debug.variable.watch',
+        category: DEBUG_CATEGORY,
+        label: 'Add to Watch',
+    };
+
+    export const ADD_WATCH_EXPRESSION: Command = {
+        id: 'debug.watch.addExpression',
+        category: DEBUG_CATEGORY,
+        label: 'Add Watch Expression'
+    };
+    export const EDIT_WATCH_EXPRESSION: Command = {
+        id: 'debug.watch.editExpression',
+        category: DEBUG_CATEGORY,
+        label: 'Edit Watch Expression'
+    };
+    export const COPY_WATCH_EXPRESSION_VALUE: Command = {
+        id: 'debug.watch.copyExpressionValue',
+        category: DEBUG_CATEGORY,
+        label: 'Copy Watch Expression Value'
+    };
+    export const REMOVE_WATCH_EXPRESSION: Command = {
+        id: 'debug.watch.removeExpression',
+        category: DEBUG_CATEGORY,
+        label: 'Remove Watch Expression'
+    };
+    export const COLLAPSE_ALL_WATCH_EXPRESSIONS: Command = {
+        id: 'debug.watch.collapseAllExpressions',
+        category: DEBUG_CATEGORY,
+        label: 'Collapse All Watch Expressions'
+    };
+    export const REMOVE_ALL_WATCH_EXPRESSIONS: Command = {
+        id: 'debug.watch.removeAllExpressions',
+        category: DEBUG_CATEGORY,
+        label: 'Remove All Watch Expressions'
     };
 }
 export namespace DebugThreadContextCommands {
@@ -310,11 +366,11 @@ const darkCss = require('../../src/browser/style/debug-dark.useable.css');
 const lightCss = require('../../src/browser/style/debug-bright.useable.css');
 
 function updateTheme(): void {
-    const theme = ThemeService.get().getCurrentTheme().id;
-    if (theme === 'dark') {
+    const themeType = ThemeService.get().getCurrentTheme().type;
+    if (themeType === 'dark' || themeType === 'hc') {
         lightCss.unuse();
         darkCss.use();
-    } else if (theme === 'light') {
+    } else if (themeType === 'light') {
         darkCss.unuse();
         lightCss.use();
     }
@@ -323,7 +379,7 @@ updateTheme();
 ThemeService.get().onThemeChange(() => updateTheme());
 
 @injectable()
-export class DebugFrontendApplicationContribution extends AbstractViewContribution<DebugWidget> implements TabBarToolbarContribution {
+export class DebugFrontendApplicationContribution extends AbstractViewContribution<DebugWidget> implements TabBarToolbarContribution, ColorContribution {
 
     @inject(DebugService)
     protected readonly debug: DebugService;
@@ -354,6 +410,15 @@ export class DebugFrontendApplicationContribution extends AbstractViewContributi
 
     @inject(DebugPreferences)
     protected readonly preference: DebugPreferences;
+
+    @inject(DebugWatchManager)
+    protected readonly watchManager: DebugWatchManager;
+
+    @inject(LabelProvider)
+    protected readonly labelProvider: LabelProvider;
+
+    @inject(EditorManager)
+    protected readonly editorManager: EditorManager;
 
     constructor() {
         super({
@@ -397,14 +462,19 @@ export class DebugFrontendApplicationContribution extends AbstractViewContributi
             }
         });
 
+        this.updateStatusBar();
+        this.manager.onDidChange(() => this.updateStatusBar());
+
         this.schemaUpdater.update();
         this.configurations.load();
         await this.breakpointManager.load();
+        await this.watchManager.load();
     }
 
     onStop(): void {
         this.configurations.save();
         this.breakpointManager.save();
+        this.watchManager.save();
     }
 
     registerMenus(menus: MenuModelRegistry): void {
@@ -442,8 +512,17 @@ export class DebugFrontendApplicationContribution extends AbstractViewContributi
             DebugCommands.CONTINUE_ALL,
             DebugCommands.PAUSE_ALL
         );
+        registerMenuActions(DebugMenus.DEBUG_BREAKPOINT,
+            DebugCommands.TOGGLE_BREAKPOINT
+        );
+        menus.registerSubmenu(DebugMenus.DEBUG_NEW_BREAKPOINT, 'New Breakpoint');
+        registerMenuActions(DebugMenus.DEBUG_NEW_BREAKPOINT,
+            DebugCommands.ADD_CONDITIONAL_BREAKPOINT,
+            DebugCommands.INLINE_BREAKPOINT,
+            DebugCommands.ADD_FUNCTION_BREAKPOINT,
+            DebugCommands.ADD_LOGPOINT,
+        );
         registerMenuActions(DebugMenus.DEBUG_BREAKPOINTS,
-            DebugCommands.TOGGLE_BREAKPOINT,
             DebugCommands.ENABLE_ALL_BREAKPOINTS,
             DebugCommands.DISABLE_ALL_BREAKPOINTS,
             DebugCommands.REMOVE_ALL_BREAKPOINTS
@@ -475,10 +554,22 @@ export class DebugFrontendApplicationContribution extends AbstractViewContributi
             DebugCommands.COPY_CALL_STACK
         );
 
-        registerMenuActions(DebugVariablesWidget.CONTEXT_MENU,
+        registerMenuActions(DebugVariablesWidget.EDIT_MENU,
             DebugCommands.SET_VARIABLE_VALUE,
             DebugCommands.COPY_VARIABLE_VALUE,
             DebugCommands.COPY_VARIABLE_AS_EXPRESSION
+        );
+        registerMenuActions(DebugVariablesWidget.WATCH_MENU,
+            DebugCommands.WATCH_VARIABLE
+        );
+
+        registerMenuActions(DebugWatchWidget.EDIT_MENU,
+            { ...DebugCommands.EDIT_WATCH_EXPRESSION, label: 'Edit Expression' },
+            { ...DebugCommands.COPY_WATCH_EXPRESSION_VALUE, label: 'Copy Value' }
+        );
+        registerMenuActions(DebugWatchWidget.REMOVE_MENU,
+            { ...DebugCommands.REMOVE_WATCH_EXPRESSION, label: 'Remove Expression' },
+            { ...DebugCommands.REMOVE_ALL_WATCH_EXPRESSIONS, label: 'Remove All Expressions' }
         );
 
         registerMenuActions(DebugBreakpointsWidget.EDIT_MENU,
@@ -645,31 +736,46 @@ export class DebugFrontendApplicationContribution extends AbstractViewContributi
             execute: () => this.editors.toggleBreakpoint(),
             isEnabled: () => !!this.editors.model
         });
+        registry.registerCommand(DebugCommands.INLINE_BREAKPOINT, {
+            execute: () => this.editors.addInlineBreakpoint(),
+            isEnabled: () => !!this.editors.model && !this.editors.getInlineBreakpoint()
+        });
         registry.registerCommand(DebugCommands.ADD_CONDITIONAL_BREAKPOINT, {
             execute: () => this.editors.addBreakpoint('condition'),
-            isEnabled: () => !!this.editors.model && !this.editors.anyBreakpoint
+            isEnabled: () => !!this.editors.model && !this.editors.anyBreakpoint()
         });
         registry.registerCommand(DebugCommands.ADD_LOGPOINT, {
             execute: () => this.editors.addBreakpoint('logMessage'),
-            isEnabled: () => !!this.editors.model && !this.editors.anyBreakpoint
+            isEnabled: () => !!this.editors.model && !this.editors.anyBreakpoint()
+        });
+        registry.registerCommand(DebugCommands.ADD_FUNCTION_BREAKPOINT, {
+            execute: async () => {
+                const { labelProvider, breakpointManager, editorManager } = this;
+                const options = { labelProvider, breakpoints: breakpointManager, editorManager };
+                await new DebugFunctionBreakpoint(FunctionBreakpoint.create({ name: '' }), options).open();
+            },
+            isEnabled: widget => !(widget instanceof Widget) || widget instanceof DebugBreakpointsWidget,
+            isVisible: widget => !(widget instanceof Widget) || widget instanceof DebugBreakpointsWidget
         });
         registry.registerCommand(DebugCommands.ENABLE_ALL_BREAKPOINTS, {
             execute: () => this.breakpointManager.enableAllBreakpoints(true),
-            isEnabled: () => !!this.breakpointManager.getUris().next().value
+            isEnabled: () => this.breakpointManager.hasBreakpoints()
         });
         registry.registerCommand(DebugCommands.DISABLE_ALL_BREAKPOINTS, {
             execute: () => this.breakpointManager.enableAllBreakpoints(false),
-            isEnabled: () => !!this.breakpointManager.getUris().next().value
+            isEnabled: () => this.breakpointManager.hasBreakpoints()
         });
         registry.registerCommand(DebugCommands.EDIT_BREAKPOINT, {
             execute: async () => {
-                const { selectedBreakpoint } = this;
+                const { selectedBreakpoint, selectedFunctionBreakpoint } = this;
                 if (selectedBreakpoint) {
                     await this.editors.editBreakpoint(selectedBreakpoint);
+                } else if (selectedFunctionBreakpoint) {
+                    await selectedFunctionBreakpoint.open();
                 }
             },
-            isEnabled: () => !!this.selectedBreakpoint,
-            isVisible: () => !!this.selectedBreakpoint
+            isEnabled: () => !!this.selectedBreakpoint || !!this.selectedFunctionBreakpoint,
+            isVisible: () => !!this.selectedBreakpoint || !!this.selectedFunctionBreakpoint
         });
         registry.registerCommand(DebugCommands.EDIT_LOGPOINT, {
             execute: async () => {
@@ -683,13 +789,13 @@ export class DebugFrontendApplicationContribution extends AbstractViewContributi
         });
         registry.registerCommand(DebugCommands.REMOVE_BREAKPOINT, {
             execute: () => {
-                const { selectedBreakpoint } = this;
+                const selectedBreakpoint = this.selectedBreakpoint || this.selectedFunctionBreakpoint;
                 if (selectedBreakpoint) {
                     selectedBreakpoint.remove();
                 }
             },
-            isEnabled: () => !!this.selectedBreakpoint,
-            isVisible: () => !!this.selectedBreakpoint
+            isEnabled: () => !!this.selectedBreakpoint || !!this.selectedFunctionBreakpoint,
+            isVisible: () => !!this.selectedBreakpoint || !!this.selectedFunctionBreakpoint,
         });
         registry.registerCommand(DebugCommands.REMOVE_LOGPOINT, {
             execute: () => {
@@ -702,8 +808,8 @@ export class DebugFrontendApplicationContribution extends AbstractViewContributi
             isVisible: () => !!this.selectedLogpoint
         });
         registry.registerCommand(DebugCommands.REMOVE_ALL_BREAKPOINTS, {
-            execute: () => this.breakpointManager.cleanAllMarkers(),
-            isEnabled: () => !!this.breakpointManager.getUris().next().value,
+            execute: () => this.breakpointManager.removeBreakpoints(),
+            isEnabled: () => this.breakpointManager.hasBreakpoints(),
             isVisible: widget => !(widget instanceof Widget) || (widget instanceof DebugBreakpointsWidget)
         });
         registry.registerCommand(DebugCommands.TOGGLE_BREAKPOINTS_ENABLED, {
@@ -746,6 +852,16 @@ export class DebugFrontendApplicationContribution extends AbstractViewContributi
             execute: () => this.selectedVariable && this.selectedVariable.copyAsExpression(),
             isEnabled: () => !!this.selectedVariable && this.selectedVariable.supportCopyAsExpression,
             isVisible: () => !!this.selectedVariable && this.selectedVariable.supportCopyAsExpression
+        });
+        registry.registerCommand(DebugCommands.WATCH_VARIABLE, {
+            execute: () => {
+                const { selectedVariable, watch } = this;
+                if (selectedVariable && watch) {
+                    watch.viewModel.addWatchExpression(selectedVariable.name);
+                }
+            },
+            isEnabled: () => !!this.selectedVariable && !!this.watch,
+            isVisible: () => !!this.selectedVariable && !!this.watch,
         });
 
         // Debug context menu commands
@@ -811,6 +927,68 @@ export class DebugFrontendApplicationContribution extends AbstractViewContributi
         registry.registerCommand(DebugBreakpointWidgetCommands.CLOSE, {
             execute: () => this.editors.closeBreakpoint()
         });
+
+        registry.registerCommand(DebugCommands.ADD_WATCH_EXPRESSION, {
+            execute: widget => {
+                if (widget instanceof Widget) {
+                    if (widget instanceof DebugWatchWidget) {
+                        widget.viewModel.addWatchExpression();
+                    }
+                } else if (this.watch) {
+                    this.watch.viewModel.addWatchExpression();
+                }
+            },
+            isEnabled: widget => widget instanceof Widget ? widget instanceof DebugWatchWidget : !!this.watch,
+            isVisible: widget => widget instanceof Widget ? widget instanceof DebugWatchWidget : !!this.watch
+        });
+        registry.registerCommand(DebugCommands.EDIT_WATCH_EXPRESSION, {
+            execute: () => {
+                const { watchExpression } = this;
+                if (watchExpression) {
+                    watchExpression.open();
+                }
+            },
+            isEnabled: () => !!this.watchExpression,
+            isVisible: () => !!this.watchExpression
+        });
+        registry.registerCommand(DebugCommands.COPY_WATCH_EXPRESSION_VALUE, {
+            execute: () => this.watchExpression && this.watchExpression.copyValue(),
+            isEnabled: () => !!this.watchExpression && this.watchExpression.supportCopyValue,
+            isVisible: () => !!this.watchExpression && this.watchExpression.supportCopyValue
+        });
+        registry.registerCommand(DebugCommands.COLLAPSE_ALL_WATCH_EXPRESSIONS, {
+            execute: widget => {
+                if (widget instanceof DebugWatchWidget) {
+                    const root = widget.model.root;
+                    widget.model.collapseAll(CompositeTreeNode.is(root) ? root : undefined);
+                }
+            },
+            isEnabled: widget => widget instanceof DebugWatchWidget,
+            isVisible: widget => widget instanceof DebugWatchWidget
+        });
+        registry.registerCommand(DebugCommands.REMOVE_WATCH_EXPRESSION, {
+            execute: () => {
+                const { watch, watchExpression } = this;
+                if (watch && watchExpression) {
+                    watch.viewModel.removeWatchExpression(watchExpression);
+                }
+            },
+            isEnabled: () => !!this.watchExpression,
+            isVisible: () => !!this.watchExpression
+        });
+        registry.registerCommand(DebugCommands.REMOVE_ALL_WATCH_EXPRESSIONS, {
+            execute: widget => {
+                if (widget instanceof Widget) {
+                    if (widget instanceof DebugWatchWidget) {
+                        widget.viewModel.removeWatchExpressions();
+                    }
+                } else if (this.watch) {
+                    this.watch.viewModel.removeWatchExpressions();
+                }
+            },
+            isEnabled: widget => widget instanceof Widget ? widget instanceof DebugWatchWidget : !!this.watch,
+            isVisible: widget => widget instanceof Widget ? widget instanceof DebugWatchWidget : !!this.watch
+        });
     }
 
     registerKeybindings(keybindings: KeybindingRegistry): void {
@@ -865,6 +1043,11 @@ export class DebugFrontendApplicationContribution extends AbstractViewContributi
             keybinding: 'f9',
             context: EditorKeybindingContexts.editorTextFocus
         });
+        keybindings.registerKeybinding({
+            command: DebugCommands.INLINE_BREAKPOINT.id,
+            keybinding: 'shift+f9',
+            context: EditorKeybindingContexts.editorTextFocus
+        });
 
         keybindings.registerKeybinding({
             command: DebugBreakpointWidgetCommands.ACCEPT.id,
@@ -884,7 +1067,8 @@ export class DebugFrontendApplicationContribution extends AbstractViewContributi
             id: DebugCommands.TOGGLE_BREAKPOINTS_ENABLED.id,
             command: DebugCommands.TOGGLE_BREAKPOINTS_ENABLED.id,
             icon: 'fa breakpoints-activate',
-            onDidChange: onDidChangeToggleBreakpointsEnabled.event
+            onDidChange: onDidChangeToggleBreakpointsEnabled.event,
+            priority: 1
         };
         const updateToggleBreakpointsEnabled = () => {
             const tooltip = this.breakpointManager.breakpointsEnabled ? 'Deactivate Breakpoints' : 'Activate Breakpoints';
@@ -893,14 +1077,41 @@ export class DebugFrontendApplicationContribution extends AbstractViewContributi
                 onDidChangeToggleBreakpointsEnabled.fire(undefined);
             }
         };
+        toolbar.registerItem({
+            id: DebugCommands.ADD_FUNCTION_BREAKPOINT.id,
+            command: DebugCommands.ADD_FUNCTION_BREAKPOINT.id,
+            icon: 'theia-add-icon',
+            tooltip: 'Add Function Breakpoint'
+        });
         updateToggleBreakpointsEnabled();
         this.breakpointManager.onDidChangeBreakpoints(updateToggleBreakpointsEnabled);
         toolbar.registerItem(toggleBreakpointsEnabled);
         toolbar.registerItem({
             id: DebugCommands.REMOVE_ALL_BREAKPOINTS.id,
             command: DebugCommands.REMOVE_ALL_BREAKPOINTS.id,
-            icon: 'fa breakpoints-remove-all',
+            icon: 'theia-remove-all-icon',
+            priority: 2
+        });
+
+        toolbar.registerItem({
+            id: DebugCommands.ADD_WATCH_EXPRESSION.id,
+            command: DebugCommands.ADD_WATCH_EXPRESSION.id,
+            icon: 'theia-add-icon',
+            tooltip: 'Add Expression'
+        });
+        toolbar.registerItem({
+            id: DebugCommands.COLLAPSE_ALL_WATCH_EXPRESSIONS.id,
+            command: DebugCommands.COLLAPSE_ALL_WATCH_EXPRESSIONS.id,
+            icon: 'theia-collapse-all-icon',
+            tooltip: 'Collapse All',
             priority: 1
+        });
+        toolbar.registerItem({
+            id: DebugCommands.REMOVE_ALL_WATCH_EXPRESSIONS.id,
+            command: DebugCommands.REMOVE_ALL_WATCH_EXPRESSIONS.id,
+            icon: 'theia-remove-all-icon',
+            tooltip: 'Remove All Expressions',
+            priority: 2
         });
     }
 
@@ -996,15 +1207,20 @@ export class DebugFrontendApplicationContribution extends AbstractViewContributi
     }
     get selectedAnyBreakpoint(): DebugBreakpoint | undefined {
         const { breakpoints } = this;
-        return breakpoints && breakpoints.selectedElement instanceof DebugBreakpoint && breakpoints.selectedElement || undefined;
+        const selectedElement = breakpoints && breakpoints.selectedElement;
+        return selectedElement instanceof DebugBreakpoint ? selectedElement : undefined;
     }
-    get selectedBreakpoint(): DebugBreakpoint | undefined {
+    get selectedBreakpoint(): DebugSourceBreakpoint | undefined {
         const breakpoint = this.selectedAnyBreakpoint;
-        return breakpoint && !breakpoint.logMessage ? breakpoint : undefined;
+        return breakpoint && breakpoint instanceof DebugSourceBreakpoint && !breakpoint.logMessage ? breakpoint : undefined;
     }
-    get selectedLogpoint(): DebugBreakpoint | undefined {
+    get selectedLogpoint(): DebugSourceBreakpoint | undefined {
         const breakpoint = this.selectedAnyBreakpoint;
-        return breakpoint && !!breakpoint.logMessage ? breakpoint : undefined;
+        return breakpoint && breakpoint instanceof DebugSourceBreakpoint && !!breakpoint.logMessage ? breakpoint : undefined;
+    }
+    get selectedFunctionBreakpoint(): DebugFunctionBreakpoint | undefined {
+        const breakpoint = this.selectedAnyBreakpoint;
+        return breakpoint && breakpoint instanceof DebugFunctionBreakpoint ? breakpoint : undefined;
     }
 
     get variables(): DebugVariablesWidget | undefined {
@@ -1016,7 +1232,85 @@ export class DebugFrontendApplicationContribution extends AbstractViewContributi
         return variables && variables.selectedElement instanceof DebugVariable && variables.selectedElement || undefined;
     }
 
+    get watch(): DebugWatchWidget | undefined {
+        const { currentWidget } = this.shell;
+        return currentWidget instanceof DebugWatchWidget && currentWidget || undefined;
+    }
+    get watchExpression(): DebugWatchExpression | undefined {
+        const { watch } = this;
+        return watch && watch.selectedElement instanceof DebugWatchExpression && watch.selectedElement || undefined;
+    }
+
     protected isPosition(position: monaco.Position): boolean {
         return (position instanceof monaco.Position);
     }
+
+    registerColors(colors: ColorRegistry): void {
+        colors.register(
+            // Debug colors should be aligned with https://code.visualstudio.com/api/references/theme-color#debug
+            {
+                id: 'editor.stackFrameHighlightBackground',
+                defaults: { dark: '#ffff0033', light: '#ffff6673', hc: '#fff600' },
+                description: 'Background color for the highlight of line at the top stack frame position.'
+            }, {
+                id: 'editor.focusedStackFrameHighlightBackground',
+                defaults: { dark: '#7abd7a4d', light: '#cee7ce73', hc: '#cee7ce' },
+                description: 'Background color for the highlight of line at focused stack frame position.'
+            },
+            // Status bar colors should be aligned with debugging colors from https://code.visualstudio.com/api/references/theme-color#status-bar-colors
+            {
+                id: 'statusBar.debuggingBackground', defaults: {
+                    dark: '#CC6633',
+                    light: '#CC6633',
+                    hc: '#CC6633'
+                }, description: 'Status bar background color when a program is being debugged. The status bar is shown in the bottom of the window'
+            },
+            {
+                id: 'statusBar.debuggingForeground', defaults: {
+                    dark: 'statusBar.foreground',
+                    light: 'statusBar.foreground',
+                    hc: 'statusBar.foreground'
+                }, description: 'Status bar foreground color when a program is being debugged. The status bar is shown in the bottom of the window'
+            },
+            {
+                id: 'statusBar.debuggingBorder', defaults: {
+                    dark: 'statusBar.border',
+                    light: 'statusBar.border',
+                    hc: 'statusBar.border'
+                }, description: 'Status bar border color separating to the sidebar and editor when a program is being debugged. The status bar is shown in the bottom of the window'
+            },
+            // Debug Exception Widget colors should be aligned with
+            // https://github.com/microsoft/vscode/blob/ff5f581425da6230b6f9216ecf19abf6c9d285a6/src/vs/workbench/contrib/debug/browser/exceptionWidget.ts#L23
+            {
+                id: 'debugExceptionWidget.border', defaults: {
+                    dark: '#a31515', light: '#a31515', hc: '#a31515'
+                }, description: 'Exception widget border color.',
+            }, {
+                id: 'debugExceptionWidget.background', defaults: {
+                    dark: '#420b0d', light: '#f1dfde', hc: '#420b0d'
+                }, description: 'Exception widget background color.'
+            }
+        );
+    }
+
+    protected updateStatusBar(): void {
+        if (this.debuggingStatusBar === document.body.classList.contains('theia-mod-debugging')) {
+            return;
+        }
+        document.body.classList.toggle('theia-mod-debugging');
+    }
+
+    protected get debuggingStatusBar(): boolean {
+        if (this.manager.state < DebugState.Running) {
+            return false;
+        }
+
+        const session = this.manager.currentSession;
+        if (session && session.configuration.noDebug) {
+            return false;
+        }
+
+        return true;
+    }
+
 }

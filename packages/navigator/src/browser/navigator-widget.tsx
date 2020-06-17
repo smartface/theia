@@ -18,7 +18,7 @@ import { injectable, inject, postConstruct } from 'inversify';
 import { Message } from '@phosphor/messaging';
 import URI from '@theia/core/lib/common/uri';
 import { CommandService, SelectionService } from '@theia/core/lib/common';
-import { CommonCommands, CorePreferences, LabelProvider, ViewContainerTitleOptions, Key } from '@theia/core/lib/browser';
+import { CommonCommands, CorePreferences, ViewContainerTitleOptions, Key } from '@theia/core/lib/browser';
 import {
     ContextMenuRenderer, ExpandableTreeNode,
     TreeProps, TreeModel, TreeNode
@@ -48,8 +48,6 @@ export const CLASS = 'theia-Files';
 export class FileNavigatorWidget extends FileTreeWidget {
 
     @inject(CorePreferences) protected readonly corePreferences: CorePreferences;
-
-    @inject(LabelProvider) protected readonly labelProvider: LabelProvider;
 
     @inject(NavigatorContextKeyService)
     protected readonly contextKeyService: NavigatorContextKeyService;
@@ -96,11 +94,11 @@ export class FileNavigatorWidget extends FileTreeWidget {
             if (this.model.root.name === WorkspaceNode.name) {
                 const rootNode = this.model.root.children[0];
                 if (WorkspaceRootNode.is(rootNode)) {
-                    this.title.label = rootNode.name;
+                    this.title.label = this.toNodeName(rootNode);
                     this.title.caption = this.labelProvider.getLongName(rootNode.uri);
                 }
             } else {
-                this.title.label = this.model.root.name;
+                this.title.label = this.toNodeName(this.model.root);
                 this.title.caption = this.title.label;
             }
         } else {
@@ -136,7 +134,7 @@ export class FileNavigatorWidget extends FileTreeWidget {
     }
 
     protected deflateForStorage(node: TreeNode): object {
-        // tslint:disable-next-line:no-any
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const copy = { ...node } as any;
         if (copy.uri) {
             copy.uri = copy.uri.toString();
@@ -144,7 +142,7 @@ export class FileNavigatorWidget extends FileTreeWidget {
         return super.deflateForStorage(copy);
     }
 
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     protected inflateFromStorage(node: any, parent?: TreeNode): TreeNode {
         if (node.uri) {
             node.uri = new URI(node.uri);
@@ -202,7 +200,7 @@ export class FileNavigatorWidget extends FileTreeWidget {
         if (Key.ENTER.keyCode === e.keyCode) {
             (e.target as HTMLElement).click();
         }
-    }
+    };
     /**
      * Instead of rendering the file resources from the workspace, we render a placeholder
      * button when the workspace root is not yet set.

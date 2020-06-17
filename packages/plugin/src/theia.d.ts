@@ -50,10 +50,10 @@ declare module '@theia/plugin' {
         static from(...disposableLikes: { dispose: () => any }[]): Disposable;
 
         /**
-        * Creates a new Disposable calling the provided function
-        * on dispose.
-        * @param callOnDispose Function that disposes something.
-        */
+         * Creates a new Disposable calling the provided function
+         * on dispose.
+         * @param callOnDispose Function that disposes something.
+         */
         constructor(callOnDispose: Function);
 
     }
@@ -2239,7 +2239,7 @@ declare module '@theia/plugin' {
          *
          * Throw if a command is already registered for the given command identifier.
          */
-        export function registerCommand(command: CommandDescription, handler?: (...args: any[]) => any, thisArg?: any): Disposable;
+        export function registerCommand(command: CommandDescription | string, handler?: (...args: any[]) => any, thisArg?: any): Disposable;
 
         /**
          * Register the given handler for the given command identifier.
@@ -3391,7 +3391,7 @@ declare module '@theia/plugin' {
         /**
          * Shows a file upload dialog to the user which allows to upload files
          * for various purposes.
-         * 
+         *
          * @param options Options, that control the dialog.
          * @returns A promise that resolves the paths of uploaded files or `undefined`.
          */
@@ -3902,6 +3902,18 @@ declare module '@theia/plugin' {
          * Event that is fired when [visibility](#TreeView.visible) has changed
          */
         readonly onDidChangeVisibility: Event<TreeViewVisibilityChangeEvent>;
+
+        /**
+         * An optional human-readable message that will be rendered in the view.
+         * Setting the message to null, undefined, or empty string will remove the message from the view.
+         */
+        message?: string;
+
+        /**
+         * The tree view title is initially taken from the extension package.json
+         * Changes to the title property will be properly reflected in the UI in the title of the view.
+         */
+        title?: string;
 
         /**
          * Reveal an element. By default revealed element is selected.
@@ -4506,6 +4518,250 @@ declare module '@theia/plugin' {
     }
 
     /**
+     * The file system interface exposes the editor's built-in and contributed
+     * [file system providers](#FileSystemProvider). It allows extensions to work
+     * with files from the local disk as well as files from remote places, like the
+     * remote extension host or ftp-servers.
+     *
+     * *Note* that an instance of this interface is avaiable as [`workspace.fs`](#workspace.fs).
+     */
+    export interface FileSystem {
+
+        /**
+         * Retrieve metadata about a file.
+         *
+         * @param uri The uri of the file to retrieve metadata about.
+         * @return The file metadata about the file.
+         */
+        stat(uri: Uri): PromiseLike<FileStat>;
+
+        /**
+         * Retrieve all entries of a [directory](#FileType.Directory).
+         *
+         * @param uri The uri of the folder.
+         * @return An array of name/type-tuples or a PromiseLike that resolves to such.
+         */
+        readDirectory(uri: Uri): PromiseLike<[string, FileType][]>;
+
+        /**
+         * Create a new directory (Note, that new files are created via `write`-calls).
+         *
+         * *Note* that missing directories are created automatically, e.g this call has
+         * `mkdirp` semantics.
+         *
+         * @param uri The uri of the new folder.
+         */
+        createDirectory(uri: Uri): PromiseLike<void>;
+
+        /**
+         * Read the entire contents of a file.
+         *
+         * @param uri The uri of the file.
+         * @return An array of bytes or a PromiseLike that resolves to such.
+         */
+        readFile(uri: Uri): PromiseLike<Uint8Array>;
+
+        /**
+         * Write data to a file, replacing its entire contents.
+         *
+         * @param uri The uri of the file.
+         * @param content The new content of the file.
+         */
+        writeFile(uri: Uri, content: Uint8Array): PromiseLike<void>;
+
+        /**
+         * Delete a file.
+         *
+         * @param uri The resource that is to be deleted.
+         * @param options Defines if trash can should be used and if deletion of folders is recursive
+         */
+        delete(uri: Uri, options?: { recursive?: boolean, useTrash?: boolean }): PromiseLike<void>;
+
+        /**
+         * Rename a file or folder.
+         *
+         * @param source The existing file.
+         * @param target The new location.
+         * @param options Defines if existing files should be overwritten.
+         */
+        rename(source: Uri, target: Uri, options?: { overwrite?: boolean }): PromiseLike<void>;
+
+        /**
+         * Copy files or folders.
+         *
+         * @param source The existing file.
+         * @param target The destination location.
+         * @param options Defines if existing files should be overwritten.
+         */
+        copy(source: Uri, target: Uri, options?: { overwrite?: boolean }): PromiseLike<void>;
+    }
+
+    /**
+     * An event that is fired when files are going to be created.
+     *
+     * To make modifications to the workspace before the files are created,
+     * call the [`waitUntil](#FileWillCreateEvent.waitUntil)-function with a
+     * thenable that resolves to a [workspace edit](#WorkspaceEdit).
+     */
+    export interface FileWillCreateEvent {
+
+        /**
+         * The files that are going to be created.
+         */
+        readonly files: ReadonlyArray<Uri>;
+
+        /**
+         * Allows to pause the event and to apply a [workspace edit](#WorkspaceEdit).
+         *
+         * *Note:* This function can only be called during event dispatch and not
+         * in an asynchronous manner:
+         *
+         * ```ts
+         * workspace.onWillCreateFiles(event => {
+         *     // async, will *throw* an error
+         *     setTimeout(() => event.waitUntil(promise));
+         *
+         *     // sync, OK
+         *     event.waitUntil(promise);
+         * })
+         * ```
+         *
+         * @param thenable A thenable that delays saving.
+         */
+        waitUntil(thenable: Thenable<WorkspaceEdit>): void;
+
+        /**
+         * Allows to pause the event until the provided thenable resolves.
+         *
+         * *Note:* This function can only be called during event dispatch.
+         *
+         * @param thenable A thenable that delays saving.
+         */
+        waitUntil(thenable: Thenable<any>): void;
+    }
+
+    /**
+     * An event that is fired after files are created.
+     */
+    export interface FileCreateEvent {
+
+        /**
+         * The files that got created.
+         */
+        readonly files: ReadonlyArray<Uri>;
+    }
+
+    /**
+     * An event that is fired when files are going to be deleted.
+     *
+     * To make modifications to the workspace before the files are deleted,
+     * call the [`waitUntil](#FileWillCreateEvent.waitUntil)-function with a
+     * thenable that resolves to a [workspace edit](#WorkspaceEdit).
+     */
+    export interface FileWillDeleteEvent {
+
+        /**
+         * The files that are going to be deleted.
+         */
+        readonly files: ReadonlyArray<Uri>;
+
+        /**
+         * Allows to pause the event and to apply a [workspace edit](#WorkspaceEdit).
+         *
+         * *Note:* This function can only be called during event dispatch and not
+         * in an asynchronous manner:
+         *
+         * ```ts
+         * workspace.onWillCreateFiles(event => {
+         *     // async, will *throw* an error
+         *     setTimeout(() => event.waitUntil(promise));
+         *
+         *     // sync, OK
+         *     event.waitUntil(promise);
+         * })
+         * ```
+         *
+         * @param thenable A thenable that delays saving.
+         */
+        waitUntil(thenable: Thenable<WorkspaceEdit>): void;
+
+        /**
+         * Allows to pause the event until the provided thenable resolves.
+         *
+         * *Note:* This function can only be called during event dispatch.
+         *
+         * @param thenable A thenable that delays saving.
+         */
+        waitUntil(thenable: Thenable<any>): void;
+    }
+
+    /**
+     * An event that is fired after files are deleted.
+     */
+    export interface FileDeleteEvent {
+
+        /**
+         * The files that got deleted.
+         */
+        readonly files: ReadonlyArray<Uri>;
+    }
+
+    /**
+     * An event that is fired when files are going to be renamed.
+     *
+     * To make modifications to the workspace before the files are renamed,
+     * call the [`waitUntil](#FileWillCreateEvent.waitUntil)-function with a
+     * thenable that resolves to a [workspace edit](#WorkspaceEdit).
+     */
+    export interface FileWillRenameEvent {
+
+        /**
+         * The files that are going to be renamed.
+         */
+        readonly files: ReadonlyArray<{ oldUri: Uri, newUri: Uri }>;
+
+        /**
+         * Allows to pause the event and to apply a [workspace edit](#WorkspaceEdit).
+         *
+         * *Note:* This function can only be called during event dispatch and not
+         * in an asynchronous manner:
+         *
+         * ```ts
+         * workspace.onWillCreateFiles(event => {
+         *     // async, will *throw* an error
+         *     setTimeout(() => event.waitUntil(promise));
+         *
+         *     // sync, OK
+         *     event.waitUntil(promise);
+         * })
+         * ```
+         *
+         * @param thenable A thenable that delays saving.
+         */
+        waitUntil(thenable: Thenable<WorkspaceEdit>): void;
+
+        /**
+         * Allows to pause the event until the provided thenable resolves.
+         *
+         * *Note:* This function can only be called during event dispatch.
+         *
+         * @param thenable A thenable that delays saving.
+         */
+        waitUntil(thenable: Thenable<any>): void;
+    }
+
+    /**
+     * An event that is fired after files are renamed.
+     */
+    export interface FileRenameEvent {
+
+        /**
+         * The files that got renamed.
+         */
+        readonly files: ReadonlyArray<{ oldUri: Uri, newUri: Uri }>;
+    }
+
+    /**
      * Namespace for dealing with the current workspace. A workspace is the representation
      * of the folder that has been opened. There is no workspace when just a file but not a
      * folder has been opened.
@@ -4515,6 +4771,14 @@ declare module '@theia/plugin' {
      * the editor-process so that they should be always used instead of nodejs-equivalents.
      */
     export namespace workspace {
+
+        /**
+         * A [file system](#FileSystem) instance that allows to interact with local and remote
+         * files, e.g. `workspace.fs.readDirectory(someUri)` allows to retrieve all entries
+         * of a directory or `workspace.fs.stat(anotherUri)` returns the meta data for a
+         * file.
+         */
+        export const fs: FileSystem;
 
         /**
          * ~~The folder that is open in the editor. `undefined` when no folder
@@ -4613,6 +4877,76 @@ declare module '@theia/plugin' {
          * An event that is emitted when a [text document](#TextDocument) is saved to disk.
          */
         export const onDidSaveTextDocument: Event<TextDocument>;
+
+        /**
+         * An event that is emitted when files are being created.
+         *
+         * *Note 1:* This event is triggered by user gestures, like creating a file from the
+         * explorer, or from the [`workspace.applyEdit`](#workspace.applyEdit)-api. This event is *not* fired when
+         * files change on disk, e.g triggered by another application, or when using the
+         * [`workspace.fs`](#FileSystem)-api.
+         *
+         * *Note 2:* When this event is fired, edits to files thare are being created cannot be applied.
+         */
+        export const onWillCreateFiles: Event<FileWillCreateEvent>;
+
+        /**
+         * An event that is emitted when files have been created.
+         *
+         * *Note:* This event is triggered by user gestures, like creating a file from the
+         * explorer, or from the [`workspace.applyEdit`](#workspace.applyEdit)-api, but this event is *not* fired when
+         * files change on disk, e.g triggered by another application, or when using the
+         * [`workspace.fs`](#FileSystem)-api.
+         */
+        export const onDidCreateFiles: Event<FileCreateEvent>;
+
+        /**
+         * An event that is emitted when files are being deleted.
+         *
+         * *Note 1:* This event is triggered by user gestures, like deleting a file from the
+         * explorer, or from the [`workspace.applyEdit`](#workspace.applyEdit)-api, but this event is *not* fired when
+         * files change on disk, e.g triggered by another application, or when using the
+         * [`workspace.fs`](#FileSystem)-api.
+         *
+         * *Note 2:* When deleting a folder with children only one event is fired.
+         */
+        export const onWillDeleteFiles: Event<FileWillDeleteEvent>;
+
+        /**
+         * An event that is emitted when files have been deleted.
+         *
+         * *Note 1:* This event is triggered by user gestures, like deleting a file from the
+         * explorer, or from the [`workspace.applyEdit`](#workspace.applyEdit)-api, but this event is *not* fired when
+         * files change on disk, e.g triggered by another application, or when using the
+         * [`workspace.fs`](#FileSystem)-api.
+         *
+         * *Note 2:* When deleting a folder with children only one event is fired.
+         */
+        export const onDidDeleteFiles: Event<FileDeleteEvent>;
+
+        /**
+         * An event that is emitted when files are being renamed.
+         *
+         * *Note 1:* This event is triggered by user gestures, like renaming a file from the
+         * explorer, and from the [`workspace.applyEdit`](#workspace.applyEdit)-api, but this event is *not* fired when
+         * files change on disk, e.g triggered by another application, or when using the
+         * [`workspace.fs`](#FileSystem)-api.
+         *
+         * *Note 2:* When renaming a folder with children only one event is fired.
+         */
+        export const onWillRenameFiles: Event<FileWillRenameEvent>;
+
+        /**
+         * An event that is emitted when files have been renamed.
+         *
+         * *Note 1:* This event is triggered by user gestures, like renaming a file from the
+         * explorer, and from the [`workspace.applyEdit`](#workspace.applyEdit)-api, but this event is *not* fired when
+         * files change on disk, e.g triggered by another application, or when using the
+         * [`workspace.fs`](#FileSystem)-api.
+         *
+         * *Note 2:* When renaming a folder with children only one event is fired.
+         */
+        export const onDidRenameFiles: Event<FileRenameEvent>;
 
         /**
          * Opens a document. Will return early if this document is already open. Otherwise
@@ -5406,6 +5740,10 @@ declare module '@theia/plugin' {
         TypeParameter = 25
     }
 
+    export enum SymbolTag {
+        Deprecated = 1
+    }
+
     /**
      * Represents information about programming constructs like variables, classes,
      * interfaces etc.
@@ -5426,6 +5764,8 @@ declare module '@theia/plugin' {
          * The kind of this symbol.
          */
         kind: SymbolKind;
+
+        tags?: ReadonlyArray<SymbolTag>;
 
         /**
          * The location of this symbol.
@@ -5477,6 +5817,8 @@ declare module '@theia/plugin' {
          * The kind of this symbol.
          */
         kind: SymbolKind;
+
+        tags?: ReadonlyArray<SymbolTag>;
 
         /**
          * The range enclosing this symbol not including leading/trailing whitespace but everything else, e.g comments and code.
@@ -5927,15 +6269,17 @@ declare module '@theia/plugin' {
         insertText?: string | SnippetString;
 
         /**
-         * A range of text that should be replaced by this completion item.
-         *
-         * Defaults to a range from the start of the [current word](#TextDocument.getWordRangeAtPosition) to the
-         * current position.
-         *
-         * *Note:* The range must be a [single line](#Range.isSingleLine) and it must
-         * [contain](#Range.contains) the position at which completion has been [requested](#CompletionItemProvider.provideCompletionItems).
-         */
-        range?: Range;
+		 * A range or a insert and replace range selecting the text that should be replaced by this completion item.
+		 *
+		 * When omitted, the range of the [current word](#TextDocument.getWordRangeAtPosition) is used as replace-range
+		 * and as insert-range the start of the [current word](#TextDocument.getWordRangeAtPosition) to the
+		 * current position is used.
+		 *
+		 * *Note 1:* A range must be a [single line](#Range.isSingleLine) and it must
+		 * [contain](#Range.contains) the position at which completion has been [requested](#CompletionItemProvider.provideCompletionItems).
+		 * *Note 2:* A insert range must be a prefix of a replace range, that means it must be contained and starting at the same position.
+		 */
+        range?: Range | { inserting: Range; replacing: Range; };
 
         /**
          * An optional set of characters that when pressed while this completion is active will accept it first and
@@ -7234,6 +7578,19 @@ declare module '@theia/plugin' {
         export function registerFoldingRangeProvider(selector: DocumentSelector, provider: FoldingRangeProvider): Disposable;
 
         /**
+         * Register a selection range provider.
+         *
+         * Multiple providers can be registered for a language. In that case providers are asked in
+         * parallel and the results are merged. A failing provider (rejected promise or exception) will
+         * not cause a failure of the whole operation.
+         *
+         * @param selector A selector that defines the documents this provider is applicable to.
+         * @param provider A selection range provider.
+         * @return A [disposable](#Disposable) that unregisters this provider when being disposed.
+         */
+        export function registerSelectionRangeProvider(selector: DocumentSelector, provider: SelectionRangeProvider): Disposable;
+
+        /**
         * Register a reference provider.
         *
         * Multiple providers can be registered for a language. In that case providers are sorted
@@ -7245,6 +7602,19 @@ declare module '@theia/plugin' {
         * @return A [disposable](#Disposable) that unregisters this provider when being disposed.
         */
         export function registerRenameProvider(selector: DocumentSelector, provider: RenameProvider): Disposable;
+
+        /**
+         * Register a call hierarchy provider.
+         *
+         * Multiple provider can be registered for a language. In that case providers are asked in
+         * parallel and the results are merged. A failing provider (rejected promise or exception) will
+         * not cause a failure of the whole operation.
+         *
+         * @param selector A selector that defines the documents this provider is applicable to.
+         * @param service A call hierarchy provider.
+         * @return A [disposable](#Disposable) that unregisters this provider when being disposed.
+         */
+        export function registerCallHierarchyProvider(selector: DocumentSelector, provider: CallHierarchyProvider): Disposable;
     }
 
     /**
@@ -8971,4 +9341,185 @@ declare module '@theia/plugin' {
          */
         export function createCommentController(id: string, label: string): CommentController;
     }
+
+    /**
+	 * A selection range represents a part of a selection hierarchy. A selection range
+	 * may have a parent selection range that contains it.
+	 */
+    export class SelectionRange {
+
+		/**
+		 * The [range](#Range) of this selection range.
+		 */
+        range: Range;
+
+		/**
+		 * The parent selection range containing this range.
+		 */
+        parent?: SelectionRange;
+
+		/**
+		 * Creates a new selection range.
+		 *
+		 * @param range The range of the selection range.
+		 * @param parent The parent of the selection range.
+		 */
+        constructor(range: Range, parent?: SelectionRange);
+    }
+
+    export interface SelectionRangeProvider {
+		/**
+		 * Provide selection ranges for the given positions.
+		 *
+		 * Selection ranges should be computed individually and independent for each position. The editor will merge
+		 * and deduplicate ranges but providers must return hierarchies of selection ranges so that a range
+		 * is [contained](#Range.contains) by its parent.
+		 *
+		 * @param document The document in which the command was invoked.
+		 * @param positions The positions at which the command was invoked.
+		 * @param token A cancellation token.
+		 * @return Selection ranges or a thenable that resolves to such. The lack of a result can be
+		 * signaled by returning `undefined` or `null`.
+		 */
+        provideSelectionRanges(document: TextDocument, positions: Position[], token: CancellationToken): ProviderResult<SelectionRange[]>;
+    }
+
+    /**
+	 * Represents programming constructs like functions or constructors in the context
+	 * of call hierarchy.
+	 */
+    export class CallHierarchyItem {
+		/**
+		 * The name of this item.
+		 */
+        name: string;
+
+		/**
+		 * The kind of this item.
+		 */
+        kind: SymbolKind;
+
+		/**
+		 * More detail for this item, e.g. the signature of a function.
+		 */
+        detail?: string;
+
+		/**
+		 * The resource identifier of this item.
+		 */
+        uri: Uri;
+
+		/**
+		 * The range enclosing this symbol not including leading/trailing whitespace but everything else, e.g. comments and code.
+		 */
+        range: Range;
+
+		/**
+		 * The range that should be selected and revealed when this symbol is being picked, e.g. the name of a function.
+		 * Must be contained by the [`range`](#CallHierarchyItem.range).
+		 */
+        selectionRange: Range;
+
+		/**
+		 * Creates a new call hierarchy item.
+		 */
+        constructor(kind: SymbolKind, name: string, detail: string, uri: Uri, range: Range, selectionRange: Range);
+    }
+
+	/**
+	 * Represents an incoming call, e.g. a caller of a method or constructor.
+	 */
+    export class CallHierarchyIncomingCall {
+
+		/**
+		 * The item that makes the call.
+		 */
+        from: CallHierarchyItem;
+
+		/**
+		 * The range at which at which the calls appears. This is relative to the caller
+		 * denoted by [`this.from`](#CallHierarchyIncomingCall.from).
+		 */
+        fromRanges: Range[];
+
+		/**
+		 * Create a new call object.
+		 *
+		 * @param item The item making the call.
+		 * @param fromRanges The ranges at which the calls appear.
+		 */
+        constructor(item: CallHierarchyItem, fromRanges: Range[]);
+    }
+
+	/**
+	 * Represents an outgoing call, e.g. calling a getter from a method or a method from a constructor etc.
+	 */
+    export class CallHierarchyOutgoingCall {
+
+		/**
+		 * The item that is called.
+		 */
+        to: CallHierarchyItem;
+
+		/**
+		 * The range at which this item is called. This is the range relative to the caller, e.g the item
+		 * passed to [`provideCallHierarchyOutgoingCalls`](#CallHierarchyItemProvider.provideCallHierarchyOutgoingCalls)
+		 * and not [`this.to`](#CallHierarchyOutgoingCall.to).
+		 */
+        fromRanges: Range[];
+
+		/**
+		 * Create a new call object.
+		 *
+		 * @param item The item being called
+		 * @param fromRanges The ranges at which the calls appear.
+		 */
+        constructor(item: CallHierarchyItem, fromRanges: Range[]);
+    }
+
+	/**
+	 * The call hierarchy provider interface describes the constract between extensions
+	 * and the call hierarchy feature which allows to browse calls and caller of function,
+	 * methods, constructor etc.
+	 */
+    export interface CallHierarchyProvider {
+
+		/**
+		 * Bootstraps call hierarchy by returning the item that is denoted by the given document
+		 * and position. This item will be used as entry into the call graph. Providers should
+		 * return `undefined` or `null` when there is no item at the given location.
+		 *
+		 * @param document The document in which the command was invoked.
+		 * @param position The position at which the command was invoked.
+		 * @param token A cancellation token.
+		 * @returns A call hierarchy item or a thenable that resolves to such. The lack of a result can be
+		 * signaled by returning `undefined` or `null`.
+		 */
+        prepareCallHierarchy(document: TextDocument, position: Position, token: CancellationToken): ProviderResult<CallHierarchyItem>;
+
+		/**
+		 * Provide all incoming calls for an item, e.g all callers for a method. In graph terms this describes directed
+		 * and annotated edges inside the call graph, e.g the given item is the starting node and the result is the nodes
+		 * that can be reached.
+		 *
+		 * @param item The hierarchy item for which incoming calls should be computed.
+		 * @param token A cancellation token.
+		 * @returns A set of incoming calls or a thenable that resolves to such. The lack of a result can be
+		 * signaled by returning `undefined` or `null`.
+		 */
+        provideCallHierarchyIncomingCalls(item: CallHierarchyItem, token: CancellationToken): ProviderResult<CallHierarchyIncomingCall[]>;
+
+		/**
+		 * Provide all outgoing calls for an item, e.g call calls to functions, methods, or constructors from the given item. In
+		 * graph terms this describes directed and annotated edges inside the call graph, e.g the given item is the starting
+		 * node and the result is the nodes that can be reached.
+		 *
+		 * @param item The hierarchy item for which outgoing calls should be computed.
+		 * @param token A cancellation token.
+		 * @returns A set of outgoing calls or a thenable that resolves to such. The lack of a result can be
+		 * signaled by returning `undefined` or `null`.
+		 */
+        provideCallHierarchyOutgoingCalls(item: CallHierarchyItem, token: CancellationToken): ProviderResult<CallHierarchyOutgoingCall[]>;
+    }
 }
+

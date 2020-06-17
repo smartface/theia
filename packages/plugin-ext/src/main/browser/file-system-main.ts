@@ -15,23 +15,28 @@
  ********************************************************************************/
 
 import { interfaces, injectable } from 'inversify';
-import Uri from 'vscode-uri';
+import { URI as Uri } from 'vscode-uri';
 import { Disposable, ResourceResolver, DisposableCollection } from '@theia/core';
-import { Resource } from '@theia/core/lib/common/resource';
+import { Resource, ResourceProvider } from '@theia/core/lib/common/resource';
 import URI from '@theia/core/lib/common/uri';
 import { MAIN_RPC_CONTEXT, FileSystemMain, FileSystemExt } from '../../common/plugin-api-rpc';
 import { RPCProtocol } from '../../common/rpc-protocol';
+import { UriComponents } from '../../common/uri-components';
+import { FileStat, FileType } from '../../plugin/types-impl';
 
 export class FileSystemMainImpl implements FileSystemMain, Disposable {
 
     private readonly proxy: FileSystemExt;
     private readonly resourceResolver: FSResourceResolver;
+    private readonly resourceProvider: ResourceProvider;
     private readonly providers = new Map<number, Disposable>();
+    private readonly providersBySchema = new Map<string, number>();
     private readonly toDispose = new DisposableCollection();
 
     constructor(rpc: RPCProtocol, container: interfaces.Container) {
         this.proxy = rpc.getProxy(MAIN_RPC_CONTEXT.FILE_SYSTEM_EXT);
         this.resourceResolver = container.get(FSResourceResolver);
+        this.resourceProvider = container.get(ResourceProvider);
     }
 
     dispose(): void {
@@ -41,9 +46,16 @@ export class FileSystemMainImpl implements FileSystemMain, Disposable {
     async $registerFileSystemProvider(handle: number, scheme: string): Promise<void> {
         const toDispose = new DisposableCollection(
             this.resourceResolver.registerResourceProvider(handle, scheme, this.proxy),
-            Disposable.create(() => this.providers.delete(handle))
+            Disposable.create(() => {
+                this.providers.delete(handle);
+                this.providersBySchema.delete(scheme);
+            })
         );
         this.providers.set(handle, toDispose);
+        if (this.providersBySchema.has(scheme)) {
+            throw new Error(`Resource Provider for scheme '${scheme}' is already registered`);
+        }
+        this.providersBySchema.set(scheme, handle);
         this.toDispose.push(toDispose);
     }
 
@@ -54,6 +66,78 @@ export class FileSystemMainImpl implements FileSystemMain, Disposable {
         }
     }
 
+    private getHandle(uri: UriComponents): number {
+        const handle = this.providersBySchema.get(uri.scheme);
+        if (handle === undefined) {
+            throw new Error(`'No available file system provider for schema ${uri.scheme}`);
+        }
+        return handle;
+    }
+
+    // currently only support registered file system providers (and not real file system)
+    async $stat(uriComponents: UriComponents): Promise<FileStat> {
+        const uri = Uri.revive(uriComponents);
+        const handle = this.getHandle(uri);
+        return this.proxy.$stat(handle, uri);
+    }
+
+    // currently only support registered file system providers (and not real file system)
+    async $readDirectory(uriComponents: UriComponents): Promise<[string, FileType][]> {
+        const uri = Uri.revive(uriComponents);
+        const handle = this.getHandle(uri);
+        return this.proxy.$readDirectory(handle, uri);
+    }
+
+    // currently only support registered file system providers (and not real file system)
+    async $createDirectory(uriComponents: UriComponents): Promise<void> {
+        const uri = Uri.revive(uriComponents);
+        const handle = this.getHandle(uri);
+        return this.proxy.$createDirectory(handle, uri);
+    }
+
+    async $readFile(uriComponents: UriComponents): Promise<string> {
+        const uri = Uri.revive(uriComponents);
+        const resource = await this.resourceProvider(new URI(uri));
+        return resource.readContents();
+    }
+
+    async $writeFile(uriComponents: UriComponents, content: string): Promise<void> {
+        const uri = Uri.revive(uriComponents);
+        const resource = await this.resourceProvider(new URI(uri));
+        if (!resource.saveContents) {
+            throw new Error(`'No write operation available on the resource for URI ${uriComponents}`);
+        }
+        return resource.saveContents(content);
+    }
+
+    // currently only support registered file system providers (and not real file system)
+    async $delete(uriComponents: UriComponents, options: { recursive: boolean }): Promise<void> {
+        const uri = Uri.revive(uriComponents);
+        const handle = this.getHandle(uri);
+        return this.proxy.$delete(handle, uri, options);
+    }
+
+    // currently only support registered file system providers (and not real file system)
+    async $rename(source: UriComponents, target: UriComponents, options: { overwrite: boolean }): Promise<void> {
+        const sourceUri = Uri.revive(source);
+        const targetUri = Uri.revive(target);
+        const sourceHandle = this.getHandle(sourceUri);
+        if (sourceHandle !== this.getHandle(targetUri)) {
+            throw new Error(`'No matching file system provider for ${sourceUri} and ${targetUri}`);
+        }
+        return this.proxy.$rename(sourceHandle, sourceUri, targetUri, options);
+    }
+
+    // currently only support registered file system providers (and not real file system)
+    async $copy(source: UriComponents, target: UriComponents, options: { overwrite: boolean }): Promise<void> {
+        const sourceUri = Uri.revive(source);
+        const targetUri = Uri.revive(target);
+        const sourceHandle = this.getHandle(sourceUri);
+        if (sourceHandle !== this.getHandle(targetUri)) {
+            throw new Error(`'No matching file system provider for ${sourceUri} and ${targetUri}`);
+        }
+        return this.proxy.$copy(sourceHandle, sourceUri, targetUri, options);
+    }
 }
 
 @injectable()
@@ -66,7 +150,7 @@ export class FSResourceResolver implements ResourceResolver, Disposable {
     resolve(uri: URI): Resource {
         const provider = this.providers.get(uri.scheme);
         if (provider) {
-            return provider.get(uri);
+            return provider.create(uri);
         }
         throw new Error(`Unable to find a Resource Provider for scheme '${uri.scheme}'`);
     }
@@ -84,7 +168,6 @@ export class FSResourceResolver implements ResourceResolver, Disposable {
         this.providers.set(scheme, provider);
 
         const disposable = Disposable.create(() => {
-            provider.dispose();
             this.providers.delete(scheme);
         });
         this.toDispose.push(disposable);
@@ -92,23 +175,12 @@ export class FSResourceResolver implements ResourceResolver, Disposable {
     }
 }
 
-class FSResourceProvider implements Disposable {
-
-    private resourceCache = new Map<string, FSResource>();
+class FSResourceProvider {
 
     constructor(private handle: number, private proxy: FileSystemExt) { }
 
-    get(uri: URI): Resource {
-        let resource = this.resourceCache.get(uri.toString());
-        if (!resource) {
-            resource = new FSResource(this.handle, uri, this.proxy);
-            this.resourceCache.set(uri.toString(), resource);
-        }
-        return resource;
-    }
-
-    dispose(): void {
-        this.resourceCache.clear();
+    create(uri: URI): Resource {
+        return new FSResource(this.handle, uri, this.proxy);
     }
 }
 

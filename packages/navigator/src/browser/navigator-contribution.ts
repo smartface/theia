@@ -14,27 +14,55 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  ********************************************************************************/
 
-import { injectable, inject, postConstruct } from 'inversify';
+import { inject, injectable, postConstruct } from 'inversify';
 import { AbstractViewContribution } from '@theia/core/lib/browser/shell/view-contribution';
 import {
-    Navigatable, SelectableTreeNode, Widget, KeybindingRegistry, CommonCommands,
-    OpenerService, FrontendApplicationContribution, FrontendApplication, CompositeTreeNode, PreferenceScope
+    CommonCommands,
+    CompositeTreeNode,
+    FrontendApplication,
+    FrontendApplicationContribution,
+    KeybindingRegistry,
+    Navigatable,
+    OpenerService,
+    PreferenceScope,
+    PreferenceService,
+    SelectableTreeNode,
+    SHELL_TABBAR_CONTEXT_MENU,
+    Widget
 } from '@theia/core/lib/browser';
 import { FileDownloadCommands } from '@theia/filesystem/lib/browser/download/file-download-command-contribution';
-import { CommandRegistry, MenuModelRegistry, MenuPath, isOSX, Command, DisposableCollection, Mutable } from '@theia/core/lib/common';
-import { SHELL_TABBAR_CONTEXT_MENU } from '@theia/core/lib/browser';
-import { WorkspaceCommands, WorkspaceService, WorkspacePreferences } from '@theia/workspace/lib/browser';
-import { FILE_NAVIGATOR_ID, FileNavigatorWidget, EXPLORER_VIEW_CONTAINER_ID } from './navigator-widget';
+import {
+    Command,
+    CommandRegistry,
+    DisposableCollection,
+    isOSX,
+    MenuModelRegistry,
+    MenuPath,
+    Mutable
+} from '@theia/core/lib/common';
+import {
+    DidCreateNewResourceEvent,
+    WorkspaceCommandContribution,
+    WorkspaceCommands,
+    WorkspacePreferences,
+    WorkspaceService
+} from '@theia/workspace/lib/browser';
+import { EXPLORER_VIEW_CONTAINER_ID, FILE_NAVIGATOR_ID, FileNavigatorWidget } from './navigator-widget';
 import { FileNavigatorPreferences } from './navigator-preferences';
 import { NavigatorKeybindingContexts } from './navigator-keybinding-context';
 import { FileNavigatorFilter } from './navigator-filter';
 import { WorkspaceNode } from './navigator-tree';
 import { NavigatorContextKeyService } from './navigator-context-key-service';
-import { TabBarToolbarContribution, TabBarToolbarRegistry, TabBarToolbarItem } from '@theia/core/lib/browser/shell/tab-bar-toolbar';
+import {
+    TabBarToolbarContribution,
+    TabBarToolbarItem,
+    TabBarToolbarRegistry
+} from '@theia/core/lib/browser/shell/tab-bar-toolbar';
 import { FileSystemCommands } from '@theia/filesystem/lib/browser/filesystem-frontend-contribution';
 import { NavigatorDiff, NavigatorDiffCommands } from './navigator-diff';
 import { UriSelection } from '@theia/core/lib/common/selection';
-import { PreferenceService } from '@theia/core/lib/browser';
+import { DirNode } from '@theia/filesystem/lib/browser';
+import { FileNavigatorModel } from './navigator-model';
 
 export namespace FileNavigatorCommands {
     export const REVEAL_IN_NAVIGATOR: Command = {
@@ -60,10 +88,15 @@ export namespace FileNavigatorCommands {
         id: 'navigator.collapse.all',
         category: 'File',
         label: 'Collapse Folders in Explorer',
-        iconClass: 'collapse-all'
+        iconClass: 'theia-collapse-all-icon'
     };
     export const ADD_ROOT_FOLDER: Command = {
         id: 'navigator.addRootFolder'
+    };
+    export const FOCUS: Command = {
+        id: 'workbench.files.action.focusFilesExplorer',
+        category: 'File',
+        label: 'Focus on Files Explorer'
     };
 }
 
@@ -129,6 +162,9 @@ export class FileNavigatorContribution extends AbstractViewContribution<FileNavi
     @inject(PreferenceService)
     protected readonly preferenceService: PreferenceService;
 
+    @inject(WorkspaceCommandContribution)
+    protected readonly workspaceCommandContribution: WorkspaceCommandContribution;
+
     constructor(
         @inject(FileNavigatorPreferences) protected readonly fileNavigatorPreferences: FileNavigatorPreferences,
         @inject(OpenerService) protected readonly openerService: OpenerService,
@@ -161,11 +197,37 @@ export class FileNavigatorContribution extends AbstractViewContribution<FileNavi
         };
         updateFocusContextKeys();
         this.shell.activeChanged.connect(updateFocusContextKeys);
-        this.updateAddRemoveFolderActions(this.menuRegistry);
-        this.workspacePreferences.onPreferenceChanged(change => {
-            if (change.preferenceName === 'workspace.supportMultiRootWorkspace') {
-                this.updateAddRemoveFolderActions(this.menuRegistry);
+        this.workspaceCommandContribution.onDidCreateNewFile(async event => this.onDidCreateNewResource(event));
+        this.workspaceCommandContribution.onDidCreateNewFolder(async event => this.onDidCreateNewResource(event));
+    }
+
+    private async onDidCreateNewResource(event: DidCreateNewResourceEvent): Promise<void> {
+        const navigator = this.tryGetWidget();
+        if (!navigator || !navigator.isVisible) {
+            return;
+        }
+        const model: FileNavigatorModel = navigator.model;
+        const parent = await model.revealFile(event.parent);
+        if (DirNode.is(parent)) {
+            await model.refresh(parent);
+        }
+        const node = await model.revealFile(event.uri);
+        if (SelectableTreeNode.is(node)) {
+            model.selectNode(node);
+            if (DirNode.is(node)) {
+                this.openView({ activate: true });
             }
+        }
+    }
+
+    async onStart(app: FrontendApplication): Promise<void> {
+        this.workspacePreferences.ready.then(() => {
+            this.updateAddRemoveFolderActions(this.menuRegistry);
+            this.workspacePreferences.onPreferenceChanged(change => {
+                if (change.preferenceName === 'workspace.supportMultiRootWorkspace') {
+                    this.updateAddRemoveFolderActions(this.menuRegistry);
+                }
+            });
         });
     }
 
@@ -175,6 +237,9 @@ export class FileNavigatorContribution extends AbstractViewContribution<FileNavi
 
     registerCommands(registry: CommandRegistry): void {
         super.registerCommands(registry);
+        registry.registerCommand(FileNavigatorCommands.FOCUS, {
+            execute: () => this.openView({ activate: true })
+        });
         registry.registerCommand(FileNavigatorCommands.REVEAL_IN_NAVIGATOR, {
             execute: () => this.openView({ activate: true }).then(() => this.selectWidgetFileNode(this.shell.currentWidget)),
             isEnabled: () => Navigatable.is(this.shell.currentWidget),
@@ -422,7 +487,7 @@ export class FileNavigatorContribution extends AbstractViewContribution<FileNavi
         });
         item.command = id;
         this.tabbarToolbarRegistry.registerItem(item);
-    }
+    };
 
     /**
      * Reveals and selects node in the file navigator to which given widget is related.

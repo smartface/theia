@@ -44,20 +44,22 @@ export interface TokenizerOption {
      * If the `lineLimit` is not defined, it means, there are no line length limits. Otherwise, it must be a positive
      * integer or an error will be thrown.
      */
-    readonly lineLimit?: number;
+    lineLimit?: number;
 
 }
 
 export namespace TokenizerOption {
     /**
      * The default TextMate tokenizer option.
+     *
+     * @deprecated Use the current value of `editor.maxTokenizationLineLength` preference instead.
      */
     export const DEFAULT: TokenizerOption = {
         lineLimit: 400
     };
 }
 
-export function createTextmateTokenizer(grammar: IGrammar, options: TokenizerOption): monaco.languages.EncodedTokensProvider {
+export function createTextmateTokenizer(grammar: IGrammar, options: TokenizerOption): monaco.languages.EncodedTokensProvider & monaco.languages.TokensProvider {
     if (options.lineLimit !== undefined && (options.lineLimit <= 0 || !Number.isInteger(options.lineLimit))) {
         throw new Error(`The 'lineLimit' must be a positive integer. It was ${options.lineLimit}.`);
     }
@@ -73,6 +75,21 @@ export function createTextmateTokenizer(grammar: IGrammar, options: TokenizerOpt
             return {
                 endState: new TokenizerState(result.ruleStack),
                 tokens: result.tokens
+            };
+        },
+        tokenize(line: string, state: TokenizerState): monaco.languages.ILineTokens {
+            let processedLine = line;
+            if (options.lineLimit !== undefined && line.length > options.lineLimit) {
+                // Line is too long to be tokenized
+                processedLine = line.substr(0, options.lineLimit);
+            }
+            const result = grammar.tokenizeLine(processedLine, state.ruleStack);
+            return {
+                endState: new TokenizerState(result.ruleStack),
+                tokens: result.tokens.map(t => ({
+                    startIndex: t.startIndex,
+                    scopes: t.scopes.reverse().join(' ')
+                }))
             };
         }
     };

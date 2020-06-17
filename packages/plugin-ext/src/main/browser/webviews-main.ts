@@ -15,7 +15,7 @@
  ********************************************************************************/
 
 import debounce = require('lodash.debounce');
-import URI from 'vscode-uri';
+import { URI } from 'vscode-uri';
 import { interfaces } from 'inversify';
 import { WebviewsMain, MAIN_RPC_CONTEXT, WebviewsExt, WebviewPanelViewState } from '../../common/plugin-api-rpc';
 import { RPCProtocol } from '../../common/rpc-protocol';
@@ -175,7 +175,7 @@ export class WebviewsMainImpl implements WebviewsMain, Disposable {
         });
     }
 
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async $postMessage(handle: string, value: any): Promise<boolean> {
         const webview = await this.getWebview(handle);
         webview.sendMessage(value);
@@ -234,7 +234,7 @@ export class WebviewsMainImpl implements WebviewsMain, Disposable {
             this.viewColumnService.updateViewColumns();
             viewState.position = this.viewColumnService.getViewColumn(widget.id) || 0;
         }
-        // tslint:disable-next-line:no-any
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         if (JSONExt.deepEqual(<any>viewState, <any>widget.viewState)) {
             return;
         }

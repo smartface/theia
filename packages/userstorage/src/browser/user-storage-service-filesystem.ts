@@ -18,11 +18,10 @@ import { DisposableCollection, ILogger, Emitter, Event } from '@theia/core/lib/c
 import { UserStorageChangeEvent, UserStorageService } from './user-storage-service';
 import { injectable, inject } from 'inversify';
 import { FileSystemWatcher, FileChangeEvent } from '@theia/filesystem/lib/browser/filesystem-watcher';
+import { EnvVariablesServer } from '@theia/core/lib/common/env-variables';
 import { FileSystem } from '@theia/filesystem/lib/common';
 import URI from '@theia/core/lib/common/uri';
 import { UserStorageUri } from './user-storage-uri';
-
-export const THEIA_USER_STORAGE_FOLDER = '.theia';
 
 @injectable()
 export class UserStorageServiceFilesystemImpl implements UserStorageService {
@@ -34,18 +33,17 @@ export class UserStorageServiceFilesystemImpl implements UserStorageService {
     constructor(
         @inject(FileSystem) protected readonly fileSystem: FileSystem,
         @inject(FileSystemWatcher) protected readonly watcher: FileSystemWatcher,
-        @inject(ILogger) protected readonly logger: ILogger
+        @inject(ILogger) protected readonly logger: ILogger,
+        @inject(EnvVariablesServer) protected readonly envServer: EnvVariablesServer
 
     ) {
-        this.userStorageFolder = this.fileSystem.getCurrentUserHome().then(home => {
-            if (home) {
-                const userStorageFolderUri = new URI(home.uri).resolve(THEIA_USER_STORAGE_FOLDER);
-                watcher.watchFileChanges(userStorageFolderUri).then(disposable =>
-                    this.toDispose.push(disposable)
-                );
-                this.toDispose.push(this.watcher.onFilesChanged(changes => this.onDidFilesChanged(changes)));
-                return new URI(home.uri).resolve(THEIA_USER_STORAGE_FOLDER);
-            }
+        this.userStorageFolder = this.envServer.getConfigDirUri().then(configDirUri => {
+            const userDataFolderUri = new URI(configDirUri);
+            watcher.watchFileChanges(userDataFolderUri).then(disposable =>
+                this.toDispose.push(disposable)
+            );
+            this.toDispose.push(this.watcher.onFilesChanged(changes => this.onDidFilesChanged(changes)));
+            return userDataFolderUri;
         });
 
         this.toDispose.push(this.onUserStorageChangedEmitter);

@@ -97,7 +97,7 @@ export namespace TypeHierarchyTree {
 
         export function is(node: TreeNode | undefined): node is RootNode {
             if (Node.is(node) && 'direction' in node) {
-                // tslint:disable-next-line:no-any
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 const { direction } = (node as any);
                 return direction === TypeHierarchyDirection.Children || direction === TypeHierarchyDirection.Parents;
             }
@@ -122,7 +122,7 @@ export namespace TypeHierarchyTree {
 
         export function is(node: TreeNode | undefined): node is Node {
             if (!!node && 'resolved' in node && 'item' in node) {
-                // tslint:disable-next-line:no-any
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 const { resolved, item } = (node as any);
                 return typeof resolved === 'boolean' && !!item;
             }
@@ -161,20 +161,20 @@ export namespace TypeHierarchyTree {
             const captionSuffixes: TreeDecoration.CaptionAffix[] = [{
                 data: new URI(item.uri).displayName,
                 fontData: {
-                    color: 'var(--theia-ui-font-color2)',
+                    color: 'var(--theia-descriptionForeground)',
                 }
             }];
             if (item.detail) {
                 captionSuffixes.unshift({
                     data: item.detail,
                     fontData: {
-                        color: 'var(--theia-accent-color0)',
+                        color: 'var(--theia-list-highlightForeground)',
                         style: 'italic'
                     }
                 });
             }
             const data = `${TypeHierarchyDirection.Children === direction ? '▼' : '▲'}`;
-            const color = `var(${TypeHierarchyDirection.Children === direction ? '--theia-error-color2' : '--theia-success-color2'})`;
+            const color = `var(${TypeHierarchyDirection.Children === direction ? '--theia-errorForeground' : '--theia-successBackground'})`;
             return {
                 captionSuffixes,
                 captionPrefixes: [{

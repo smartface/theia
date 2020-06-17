@@ -19,20 +19,22 @@
 *  Licensed under the MIT License. See License.txt in the project root for license information.
 *--------------------------------------------------------------------------------------------*/
 
+/* eslint-disable no-null/no-null */
+
 import { UUID } from '@phosphor/coreutils/lib/uuid';
 import { illegalArgument } from '../common/errors';
 import * as theia from '@theia/plugin';
 import * as crypto from 'crypto';
-import URI from 'vscode-uri';
+import { URI } from 'vscode-uri';
 import { relative } from '../common/paths-util';
-import { startsWithIgnoreCase } from '../common/strings';
+import { startsWithIgnoreCase } from '@theia/languages/lib/common/language-selector/strings';
 import { MarkdownString, isMarkdownString } from './markdown-string';
 import { SymbolKind } from '../common/plugin-api-rpc-model';
 
 export class Disposable {
     private disposable: undefined | (() => void);
 
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     static from(...disposables: { dispose(): any }[]): Disposable {
         return new Disposable(() => {
             if (disposables) {
@@ -388,7 +390,8 @@ export class Range {
         return new Range(start, end);
     }
 
-    static isRange(thing: {}): thing is theia.Range {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    static isRange(thing: any): thing is theia.Range {
         if (thing instanceof Range) {
             return true;
         }
@@ -716,7 +719,7 @@ export enum CompletionItemKind {
     Enum = 12,
     Keyword = 13,
     Snippet = 14,
-    Color = 15,
+    Color = 15, // eslint-disable-line no-shadow
     File = 16,
     Reference = 17,
     Folder = 18,
@@ -1132,7 +1135,7 @@ export class WorkspaceEdit implements theia.WorkspaceEdit {
         return this.entries().length;
     }
 
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     toJSON(): any {
         return this.entries();
     }
@@ -1171,6 +1174,10 @@ export enum TreeItemCollapsibleState {
     Expanded = 2
 }
 
+export enum SymbolTag {
+    Deprecated = 1
+}
+
 export class SymbolInformation {
 
     static validate(candidate: SymbolInformation): void {
@@ -1182,6 +1189,7 @@ export class SymbolInformation {
     name: string;
     location: Location;
     kind: SymbolKind;
+    tags?: SymbolTag[];
     containerName: undefined | string;
     constructor(name: string, kind: SymbolKind, containerName: string, location: Location);
     constructor(name: string, kind: SymbolKind, range: Range, uri?: URI, containerName?: string);
@@ -1203,7 +1211,7 @@ export class SymbolInformation {
         SymbolInformation.validate(this);
     }
 
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     toJSON(): any {
         return {
             name: this.name,
@@ -1231,6 +1239,7 @@ export class DocumentSymbol {
     name: string;
     detail: string;
     kind: SymbolKind;
+    tags?: SymbolTag[];
     range: Range;
     selectionRange: Range;
     children: DocumentSymbol[];
@@ -1317,6 +1326,13 @@ export enum FileType {
     File = 1,
     Directory = 2,
     SymbolicLink = 64
+}
+
+export interface FileStat {
+    readonly type: FileType;
+    readonly ctime: number;
+    readonly mtime: number;
+    readonly size: number;
 }
 
 export class ProgressOptions {
@@ -1620,7 +1636,7 @@ export class Task {
         problemMatchers?: string | string[],
     );
 
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     constructor(...args: any[]) {
         let taskDefinition: theia.TaskDefinition;
         let scope: theia.WorkspaceFolder | theia.TaskScope.Global | theia.TaskScope.Workspace | undefined;
@@ -1849,6 +1865,16 @@ export class DebugAdapterServer {
     }
 }
 
+export enum LogLevel {
+    Trace = 1,
+    Debug = 2,
+    Info = 3,
+    Warning = 4,
+    Error = 5,
+    Critical = 6,
+    Off = 7
+}
+
 /**
  * The base class of all breakpoint types.
  */
@@ -1993,6 +2019,21 @@ export enum FoldingRangeKind {
     Region = 3
 }
 
+export class SelectionRange {
+
+    range: Range;
+    parent?: SelectionRange;
+
+    constructor(range: Range, parent?: SelectionRange) {
+        this.range = range;
+        this.parent = parent;
+
+        if (parent && !parent.range.contains(this.range)) {
+            throw new Error('Invalid argument: parent must contain this range');
+        }
+    }
+}
+
 /**
  * Enumeration of the supported operating systems.
  */
@@ -2008,4 +2049,60 @@ export enum WebviewPanelTargetArea {
     Left = 'left',
     Right = 'right',
     Bottom = 'bottom'
+}
+export class CallHierarchyItem {
+    _sessionId?: string;
+    _itemId?: string;
+
+    kind: SymbolKind;
+    name: string;
+    detail?: string;
+    uri: URI;
+    range: Range;
+    selectionRange: Range;
+
+    constructor(kind: SymbolKind, name: string, detail: string, uri: URI, range: Range, selectionRange: Range) {
+        this.kind = kind;
+        this.name = name;
+        this.detail = detail;
+        this.uri = uri;
+        this.range = range;
+        this.selectionRange = selectionRange;
+    }
+
+    static isCallHierarchyItem(thing: {}): thing is theia.CallHierarchyItem {
+        if (thing instanceof CallHierarchyItem) {
+            return true;
+        }
+        if (!thing) {
+            return false;
+        }
+        return typeof (<CallHierarchyItem>thing).kind === 'number' &&
+            typeof (<CallHierarchyItem>thing).name === 'string' &&
+            URI.isUri((<CallHierarchyItem>thing).uri) &&
+            Range.isRange((<CallHierarchyItem>thing).range) &&
+            Range.isRange((<CallHierarchyItem>thing).selectionRange);
+    }
+}
+
+export class CallHierarchyIncomingCall {
+
+    from: theia.CallHierarchyItem;
+    fromRanges: theia.Range[];
+
+    constructor(item: theia.CallHierarchyItem, fromRanges: theia.Range[]) {
+        this.fromRanges = fromRanges;
+        this.from = item;
+    }
+}
+
+export class CallHierarchyOutgoingCall {
+
+    to: theia.CallHierarchyItem;
+    fromRanges: theia.Range[];
+
+    constructor(item: theia.CallHierarchyItem, fromRanges: theia.Range[]) {
+        this.fromRanges = fromRanges;
+        this.to = item;
+    }
 }

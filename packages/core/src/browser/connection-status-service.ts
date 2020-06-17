@@ -20,7 +20,7 @@ import { Event, Emitter } from '../common/event';
 import { DefaultFrontendApplicationContribution } from './frontend-application';
 import { StatusBar, StatusBarAlignment } from './status-bar/status-bar';
 import { WebSocketConnectionProvider } from './messaging/ws-connection-provider';
-import { Disposable } from '../common';
+import { Disposable, DisposableCollection } from '../common';
 
 /**
  * Service for listening on backend connection changes.
@@ -125,7 +125,7 @@ export abstract class AbstractConnectionStatusService implements ConnectionStatu
         this.statusChangeEmitter.fire(status);
     }
 
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     protected setTimeout(handler: (...args: any[]) => void, timeout: number): number {
         return window.setTimeout(handler, timeout);
     }
@@ -173,6 +173,8 @@ export class FrontendConnectionStatusService extends AbstractConnectionStatusSer
 @injectable()
 export class ApplicationConnectionStatusContribution extends DefaultFrontendApplicationContribution {
 
+    protected readonly toDisposeOnOnline = new DisposableCollection();
+
     constructor(
         @inject(ConnectionStatusService) protected readonly connectionStatusService: ConnectionStatusService,
         @inject(StatusBar) protected readonly statusBar: StatusBar,
@@ -198,9 +200,7 @@ export class ApplicationConnectionStatusContribution extends DefaultFrontendAppl
     private statusbarId = 'connection-status';
 
     protected handleOnline(): void {
-        this.statusBar.setBackgroundColor(undefined);
-        this.statusBar.setColor(undefined);
-        this.statusBar.removeElement(this.statusbarId);
+        this.toDisposeOnOnline.dispose();
     }
 
     protected handleOffline(): void {
@@ -210,7 +210,8 @@ export class ApplicationConnectionStatusContribution extends DefaultFrontendAppl
             tooltip: 'Cannot connect to backend.',
             priority: 5000
         });
-        this.statusBar.setBackgroundColor('var(--theia-warn-color0)');
-        this.statusBar.setColor('var(--theia-warn-font-color0)');
+        this.toDisposeOnOnline.push(Disposable.create(() => this.statusBar.removeElement(this.statusbarId)));
+        document.body.classList.add('theia-mod-offline');
+        this.toDisposeOnOnline.push(Disposable.create(() => document.body.classList.remove('theia-mod-offline')));
     }
 }

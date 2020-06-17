@@ -20,7 +20,7 @@ import { Disposable, MenuPath, SelectionService } from '../../common';
 import { Key, KeyCode, KeyModifier } from '../keyboard/keys';
 import { ContextMenuRenderer } from '../context-menu-renderer';
 import { StatefulWidget } from '../shell';
-import { EXPANSION_TOGGLE_CLASS, SELECTED_CLASS, COLLAPSED_CLASS, FOCUS_CLASS, Widget } from '../widgets';
+import { EXPANSION_TOGGLE_CLASS, SELECTED_CLASS, COLLAPSED_CLASS, FOCUS_CLASS, Widget, BUSY_CLASS } from '../widgets';
 import { TreeNode, CompositeTreeNode } from './tree';
 import { TreeModel } from './tree-model';
 import { ExpandableTreeNode } from './tree-expansion';
@@ -37,6 +37,7 @@ import { TreeSearch } from './tree-search';
 import { ElementExt } from '@phosphor/domutils';
 import { TreeWidgetSelection } from './tree-widget-selection';
 import { MaybePromise } from '../../common/types';
+import { LabelProvider } from '../label-provider';
 
 const debounce = require('lodash.debounce');
 
@@ -69,6 +70,8 @@ export interface TreeProps {
      * the padding for the children will be calculated as `leftPadding * hierarchyDepth` and so on.
      */
     readonly leftPadding: number;
+
+    readonly expansionTogglePadding: number;
 
     /**
      * `true` if the tree widget support multi-selection. Otherwise, `false`. Defaults to `false`.
@@ -112,7 +115,8 @@ export interface NodeProps {
  * The default tree properties.
  */
 export const defaultTreeProps: TreeProps = {
-    leftPadding: 8
+    leftPadding: 8,
+    expansionTogglePadding: 18
 };
 
 export namespace TreeWidget {
@@ -154,6 +158,9 @@ export class TreeWidget extends ReactWidget implements StatefulWidget {
 
     @inject(SelectionService)
     protected readonly selectionService: SelectionService;
+
+    @inject(LabelProvider)
+    protected readonly labelProvider: LabelProvider;
 
     protected shouldScrollToRow = true;
 
@@ -211,10 +218,19 @@ export class TreeWidget extends ReactWidget implements StatefulWidget {
             this.model,
             this.model.onChanged(() => this.updateRows()),
             this.model.onSelectionChanged(() => this.updateScrollToRow({ resize: false })),
+            this.model.onDidChangeBusy(() => this.update()),
             this.model.onNodeRefreshed(() => this.updateDecorations()),
             this.model.onExpansionChanged(() => this.updateDecorations()),
             this.decoratorService,
-            this.decoratorService.onDidChangeDecorations(() => this.updateDecorations())
+            this.decoratorService.onDidChangeDecorations(() => this.updateDecorations()),
+            this.labelProvider.onDidChange(e => {
+                for (const row of this.rows.values()) {
+                    if (e.affects(row)) {
+                        this.forceUpdate();
+                        return;
+                    }
+                }
+            })
         ]);
         setTimeout(() => {
             this.updateRows();
@@ -424,7 +440,7 @@ export class TreeWidget extends ReactWidget implements StatefulWidget {
                 handleScroll={this.handleScroll}
             />;
         }
-        // tslint:disable-next-line:no-null-keyword
+        // eslint-disable-next-line no-null/no-null
         return null;
     }
 
@@ -452,7 +468,7 @@ export class TreeWidget extends ReactWidget implements StatefulWidget {
      */
     protected readonly handleScroll = (info: ScrollParams) => {
         this.node.scrollTop = info.scrollTop;
-    }
+    };
 
     /**
      * Render the node row.
@@ -471,7 +487,7 @@ export class TreeWidget extends ReactWidget implements StatefulWidget {
      * @param props the node properties.
      */
     protected renderIcon(node: TreeNode, props: NodeProps): React.ReactNode {
-        // tslint:disable-next-line:no-null-keyword
+        // eslint-disable-next-line no-null/no-null
         return null;
     }
 
@@ -499,18 +515,20 @@ export class TreeWidget extends ReactWidget implements StatefulWidget {
      */
     protected renderExpansionToggle(node: TreeNode, props: NodeProps): React.ReactNode {
         if (!this.isExpandable(node)) {
-            // tslint:disable-next-line:no-null-keyword
+            // eslint-disable-next-line no-null/no-null
             return null;
         }
         const classes = [TREE_NODE_SEGMENT_CLASS, EXPANSION_TOGGLE_CLASS];
         if (!node.expanded) {
             classes.push(COLLAPSED_CLASS);
         }
+        if (node.busy) {
+            classes.push(BUSY_CLASS);
+        }
         const className = classes.join(' ');
         return <div
             data-node-id={node.id}
             className={className}
-            style={{ paddingLeft: '4px', paddingRight: '4px' }}
             onClick={this.toggle}>
         </div>;
     }
@@ -537,7 +555,7 @@ export class TreeWidget extends ReactWidget implements StatefulWidget {
             };
         }
         const children: React.ReactNode[] = [];
-        const caption = node.name;
+        const caption = this.toNodeName(node);
         const highlight = this.getDecorationData(node, 'highlight')[0];
         if (highlight) {
             children.push(this.toReactNode(caption, highlight));
@@ -572,7 +590,7 @@ export class TreeWidget extends ReactWidget implements StatefulWidget {
         }
         const createChildren = (fragment: TreeDecoration.CaptionHighlight.Fragment) => {
             const { data } = fragment;
-            if (fragment.highligh) {
+            if (fragment.highlight) {
                 return <mark className={TreeDecoration.Styles.CAPTION_HIGHLIGHT_CLASS} style={style}>{data}</mark>;
             } else {
                 return data;
@@ -587,12 +605,14 @@ export class TreeWidget extends ReactWidget implements StatefulWidget {
      * @param attrs the additional attributes.
      */
     protected decorateCaption(node: TreeNode, attrs: React.HTMLAttributes<HTMLElement>): React.Attributes & React.HTMLAttributes<HTMLElement> {
-        const style = this.getDecorationData(node, 'fontData').filter(notEmpty).reverse().map(fontData => this.applyFontStyles({}, fontData)).reduce((acc, current) =>
-            ({
+        const style = this.getDecorationData(node, 'fontData')
+            .filter(notEmpty)
+            .reverse()
+            .map(fontData => this.applyFontStyles({}, fontData))
+            .reduce((acc, current) => ({
                 ...acc,
                 ...current
-            })
-            , {});
+            }), {});
         return {
             ...attrs,
             style
@@ -694,8 +714,9 @@ export class TreeWidget extends ReactWidget implements StatefulWidget {
      * @param icon the icon.
      */
     protected decorateIcon(node: TreeNode, icon: React.ReactNode | null): React.ReactNode {
+        // eslint-disable-next-line no-null/no-null
         if (icon === null) {
-            // tslint:disable-next-line:no-null-keyword
+            // eslint-disable-next-line no-null/no-null
             return null;
         }
 
@@ -825,11 +846,20 @@ export class TreeWidget extends ReactWidget implements StatefulWidget {
      * @returns the CSS properties if available.
      */
     protected getDefaultNodeStyle(node: TreeNode, props: NodeProps): React.CSSProperties | undefined {
-        // If the node is a composite, a toggle will be rendered. Otherwise we need to add the width and the left, right padding => 18px
-        const paddingLeft = `${props.depth * this.props.leftPadding + (this.isExpandable(node) ? 0 : 18)}px`;
-        return {
-            paddingLeft
-        };
+        const paddingLeft = this.getPaddingLeft(node, props) + 'px';
+        return { paddingLeft };
+    }
+
+    protected getPaddingLeft(node: TreeNode, props: NodeProps): number {
+        return props.depth * this.props.leftPadding + (this.needsExpansionTogglePadding(node) ? this.props.expansionTogglePadding : 0);
+    }
+
+    /**
+     * If the node is a composite, a toggle will be rendered.
+     * Otherwise we need to add the width and the left, right padding => 18px
+     */
+    protected needsExpansionTogglePadding(node: TreeNode): boolean {
+        return !this.isExpandable(node);
     }
 
     /**
@@ -952,7 +982,7 @@ export class TreeWidget extends ReactWidget implements StatefulWidget {
         this.addKeyListener(this.node, up, event => this.handleUp(event));
         this.addKeyListener(this.node, down, event => this.handleDown(event));
         this.addKeyListener(this.node, Key.ENTER, event => this.handleEnter(event));
-        // tslint:disable-next-line:no-any
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         this.addEventListener<any>(this.node, 'ps-scroll-y', (e: Event & { target: { scrollTop: number } }) => {
             if (this.view && this.view.list && this.view.list.Grid) {
                 const { scrollTop } = e.target;
@@ -1090,7 +1120,7 @@ export class TreeWidget extends ReactWidget implements StatefulWidget {
                     }))
                 ));
             }
-            this.update();
+            this.doFocus();
         }
         event.stopPropagation();
         event.preventDefault();
@@ -1100,7 +1130,7 @@ export class TreeWidget extends ReactWidget implements StatefulWidget {
      * Convert the tree node to context menu arguments.
      * @param node the selectable tree node.
      */
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     protected toContextMenuArgs(node: SelectableTreeNode): any[] | undefined {
         return undefined;
     }
@@ -1135,7 +1165,7 @@ export class TreeWidget extends ReactWidget implements StatefulWidget {
      * @param node the tree node.
      */
     protected deflateForStorage(node: TreeNode): object {
-        // tslint:disable-next-line:no-any
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const copy = Object.assign({}, node) as any;
         if (copy.parent) {
             delete copy.parent;
@@ -1145,6 +1175,9 @@ export class TreeWidget extends ReactWidget implements StatefulWidget {
         }
         if ('nextSibling' in copy) {
             delete copy.nextSibling;
+        }
+        if ('busy' in copy) {
+            delete copy.busy;
         }
         if (CompositeTreeNode.is(node)) {
             copy.children = [];
@@ -1160,7 +1193,7 @@ export class TreeWidget extends ReactWidget implements StatefulWidget {
      * @param node the tree node.
      * @param parent the optional tree node.
      */
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     protected inflateFromStorage(node: any, parent?: TreeNode): TreeNode {
         if (node.selected) {
             node.selected = false;
@@ -1200,7 +1233,7 @@ export class TreeWidget extends ReactWidget implements StatefulWidget {
      * @param oldState the old state object.
      */
     restoreState(oldState: object): void {
-        // tslint:disable-next-line:no-any
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const { root, decorations, model } = (oldState as any);
         if (root) {
             this.model.root = this.inflateFromStorage(root);
@@ -1211,6 +1244,18 @@ export class TreeWidget extends ReactWidget implements StatefulWidget {
         if (model) {
             this.model.restoreState(model);
         }
+    }
+
+    protected toNodeIcon(node: TreeNode): string {
+        return this.labelProvider.getIcon(node);
+    }
+
+    protected toNodeName(node: TreeNode): string {
+        return this.labelProvider.getName(node);
+    }
+
+    protected toNodeDescription(node: TreeNode): string {
+        return this.labelProvider.getLongName(node);
     }
 
 }
@@ -1297,6 +1342,6 @@ export namespace TreeWidget {
                 rowIndex={index}>
                 <div key={key} style={style}>{this.props.renderNodeRow(row)}</div>
             </CellMeasurer>;
-        }
+        };
     }
 }

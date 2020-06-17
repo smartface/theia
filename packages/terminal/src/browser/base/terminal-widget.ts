@@ -16,6 +16,9 @@
 
 import { Event } from '@theia/core';
 import { BaseWidget } from '@theia/core/lib/browser';
+import { CommandLineOptions } from '@theia/process/lib/common/shell-command-builder';
+import { TerminalSearchWidget } from '../search/terminal-search-widget';
+import { TerminalProcessInfo } from '../../common/base-terminal-protocol';
 
 /**
  * Terminal UI widget.
@@ -23,6 +26,16 @@ import { BaseWidget } from '@theia/core/lib/browser';
 export abstract class TerminalWidget extends BaseWidget {
 
     abstract processId: Promise<number>;
+
+    /**
+     * Get the current executable and arguments.
+     */
+    abstract processInfo: Promise<TerminalProcessInfo>;
+
+    /** Terminal kind that indicates whether a terminal is created by a user or by some extension for a user */
+    abstract readonly kind: 'user' | string;
+
+    abstract readonly terminalId: number;
 
     /**
      * Start terminal and return terminal id.
@@ -36,8 +49,36 @@ export abstract class TerminalWidget extends BaseWidget {
      */
     abstract sendText(text: string): void;
 
+    /**
+     * Resolves when the command is successfully sent, this doesn't mean that it
+     * was evaluated. Might reject if terminal wasn't properly started yet.
+     *
+     * Note that this method will try to escape your arguments as if it was
+     * someone inputting everything in a shell.
+     *
+     * Supported shells: `bash`, `cmd.exe`, `wsl.exe`, `pwsh/powershell.exe`
+     */
+    abstract executeCommand(commandOptions: CommandLineOptions): Promise<void>;
+
+    /** Event that fires when the terminal is connected or reconnected */
     abstract onDidOpen: Event<void>;
 
+    /** Event that fires when the terminal fails to connect or reconnect */
+    abstract onDidOpenFailure: Event<void>;
+
+    abstract scrollLineUp(): void;
+
+    abstract scrollLineDown(): void;
+
+    abstract scrollToTop(): void;
+
+    abstract scrollToBottom(): void;
+
+    abstract scrollPageUp(): void;
+
+    abstract scrollPageDown(): void;
+
+    abstract resetTerminal(): void;
     /**
      * Event which fires when terminal did closed. Event value contains closed terminal widget definition.
      */
@@ -47,6 +88,19 @@ export abstract class TerminalWidget extends BaseWidget {
      * Cleat terminal output.
      */
     abstract clearOutput(): void;
+
+    abstract writeLine(line: string): void;
+
+    /**
+     * Return Terminal search box widget.
+     */
+    abstract getSearchBox(): TerminalSearchWidget;
+    /**
+     * Whether the terminal process has child processes.
+     */
+    abstract hasChildProcesses(): Promise<boolean>;
+
+    abstract setTitle(title: string): void;
 }
 
 /**
@@ -101,4 +155,9 @@ export interface TerminalWidgetOptions {
      * Terminal attributes. Can be useful to apply some implementation specific information.
      */
     readonly attributes?: { [key: string]: string | null };
+
+    /**
+     * Terminal kind that indicates whether a terminal is created by a user or by some extension for a user
+     */
+    readonly kind?: 'user' | string;
 }

@@ -14,12 +14,12 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  ********************************************************************************/
 
-// tslint:disable:no-any
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 import * as theia from '@theia/plugin';
 import { BackendInitializationFn, PluginAPIFactory, Plugin, emptyPlugin } from '@theia/plugin-ext';
 
-export const VSCODE_DEFAULT_API_VERSION = '1.38.0';
+export const VSCODE_DEFAULT_API_VERSION = '1.44.0';
 
 /** Set up en as a default locale for VS Code extensions using vscode-nls */
 process.env['VSCODE_NLS_CONFIG'] = JSON.stringify({ locale: 'en', availableLanguages: {} });
@@ -38,21 +38,6 @@ export enum ExtensionKind {
 
 export const doInitialization: BackendInitializationFn = (apiFactory: PluginAPIFactory, plugin: Plugin) => {
     const vscode = Object.assign(apiFactory(plugin), { ExtensionKind });
-
-    // replace command API as it will send only the ID as a string parameter
-    const registerCommand = vscode.commands.registerCommand;
-    vscode.commands.registerCommand = function (command: theia.CommandDescription | string, handler?: <T>(...args: any[]) => T | Thenable<T>, thisArg?: any): any {
-        // use of the ID when registering commands
-        if (typeof command === 'string') {
-            const rawCommands = plugin.rawModel.contributes && plugin.rawModel.contributes.commands;
-            const commands = rawCommands ? Array.isArray(rawCommands) ? rawCommands : [rawCommands] : undefined;
-            if (handler && commands && commands.some(item => item.command === command)) {
-                return vscode.commands.registerHandler(command, handler, thisArg);
-            }
-            return registerCommand({ id: command }, handler, thisArg);
-        }
-        return registerCommand(command, handler, thisArg);
-    };
 
     // use Theia plugin api instead vscode extensions
     (<any>vscode).extensions = {
@@ -87,7 +72,7 @@ function overrideInternalLoad(): void {
     const internalLoad = module._load;
 
     // if we try to resolve theia module, return the filename entry to use cache.
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     module._load = function (request: string, parent: any, isMain: {}): any {
         if (request !== vscodeModuleName) {
             return internalLoad.apply(this, arguments);

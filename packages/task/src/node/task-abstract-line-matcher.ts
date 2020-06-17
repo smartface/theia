@@ -26,7 +26,8 @@ import {
     ProblemMatch, ProblemMatchData, ProblemLocationKind
 } from '../common/problem-matcher-protocol';
 import URI from '@theia/core/lib/common/uri';
-import vscodeURI from 'vscode-uri/lib/umd';
+// TODO use onyl URI from '@theia/core'
+import { URI as vscodeURI } from 'vscode-uri';
 import { Severity } from '@theia/core/lib/common/severity';
 
 const endOfLine: string = isWindows ? '\r\n' : '\n';
@@ -82,7 +83,7 @@ export abstract class AbstractLineMatcher {
     }
 
     protected getEmptyProblemData(): ProblemData {
-        // tslint:disable-next-line:no-null-keyword
+        // eslint-disable-next-line no-null/no-null
         return Object.create(null) as ProblemData;
     }
 
@@ -166,7 +167,7 @@ export abstract class AbstractLineMatcher {
             return this.parseLocationInfo(data.location);
         }
         if (!data.line) {
-            // tslint:disable-next-line:no-null-keyword
+            // eslint-disable-next-line no-null/no-null
             return null;
         }
         const startLine = parseInt(data.line);
@@ -178,7 +179,7 @@ export abstract class AbstractLineMatcher {
 
     private parseLocationInfo(value: string): Range | null {
         if (!value || !value.match(/(\d+|\d+,\d+|\d+,\d+,\d+,\d+)/)) {
-            // tslint:disable-next-line:no-null-keyword
+            // eslint-disable-next-line no-null/no-null
             return null;
         }
         const parts = value.split(',');
@@ -217,7 +218,7 @@ export abstract class AbstractLineMatcher {
     }
 
     private getSeverity(data: ProblemData): DiagnosticSeverity {
-        // tslint:disable-next-line:no-null-keyword
+        // eslint-disable-next-line no-null/no-null
         let result: Severity | null = null;
         if (data.severity) {
             const value = data.severity;
@@ -238,6 +239,7 @@ export abstract class AbstractLineMatcher {
                 }
             }
         }
+        // eslint-disable-next-line no-null/no-null
         if (result === null || result === Severity.Ignore) {
             result = this.matcher.severity || Severity.Error;
         }

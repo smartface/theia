@@ -90,14 +90,16 @@ export class NameStatusParser extends OutputParser<GitFileChange> {
                 changes.push({
                     status,
                     uri,
-                    oldUri
+                    oldUri,
+                    staged: true
                 });
                 index = index + 3;
             } else {
                 const uri = this.toUri(repositoryUri, items[index + 1]);
                 changes.push({
                     status,
-                    uri
+                    uri,
+                    staged: true
                 });
                 index = index + 2;
             }
@@ -398,7 +400,7 @@ export class DugiteGit implements Git {
     async branch(repository: Repository, options: { type: 'current' }): Promise<Branch | undefined>;
     async branch(repository: Repository, options: { type: 'local' | 'remote' | 'all' }): Promise<Branch[]>;
     async branch(repository: Repository, options: Git.Options.BranchCommand.Create | Git.Options.BranchCommand.Rename | Git.Options.BranchCommand.Delete): Promise<void>;
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async branch(repository: any, options: any): Promise<void | undefined | Branch | Branch[]> {
         await this.ready.promise;
         const [exec, env] = await Promise.all([this.execProvider.exec(), this.gitEnv.promise]);
@@ -613,6 +615,12 @@ export class DugiteGit implements Git {
                 opts = {
                     ...options
                 };
+                if (options.successExitCodes) {
+                    opts = { ...opts, successExitCodes: new Set(options.successExitCodes) };
+                }
+                if (options.expectedErrors) {
+                    opts = { ...opts, expectedErrors: new Set(options.expectedErrors) };
+                }
             }
             opts = {
                 ...opts,
@@ -643,11 +651,8 @@ export class DugiteGit implements Git {
         if (options && options.branch) {
             args.push(options.branch);
         }
-        if (options && options.firstParent) {
-            args.push('--first-parent');
-        }
         const range = this.mapRange((options || {}).range);
-        args.push(...[range, '-C', '-M', '-m']);
+        args.push(...[range, '-C', '-M', '-m', '--first-parent']);
         const maxCount = options && options.maxCount ? options.maxCount : 0;
         if (Number.isInteger(maxCount) && maxCount > 0) {
             args.push(...['-n', `${maxCount}`]);
@@ -661,7 +666,7 @@ export class DugiteGit implements Git {
             args.push(...[file]);
         }
 
-        const successExitCodes = new Set([0, 128]);
+        const successExitCodes = [0, 128];
         let result = await this.exec(repository, args, { successExitCodes });
         if (result.exitCode !== 0) {
             // Note that if no range specified then the 'to revision' defaults to HEAD
@@ -686,7 +691,7 @@ export class DugiteGit implements Git {
 
     async revParse(repository: Repository, options: Git.Options.RevParse): Promise<string | undefined> {
         const ref = options.ref;
-        const successExitCodes = new Set([0, 128]);
+        const successExitCodes = [0, 128];
         const result = await this.exec(repository, ['rev-parse', ref], { successExitCodes });
         if (result.exitCode === 0) {
             return result.stdout; // sha
@@ -727,7 +732,7 @@ export class DugiteGit implements Git {
         return blame;
     }
 
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async lsFiles(repository: Repository, uri: string, options?: Git.Options.LsFiles): Promise<any> {
         await this.ready.promise;
         const args = ['ls-files'];
@@ -735,8 +740,8 @@ export class DugiteGit implements Git {
         const file = (relativePath === '') ? '.' : relativePath;
         if (options && options.errorUnmatch) {
             args.push('--error-unmatch', file);
-            const successExitCodes = new Set([0, 1]);
-            const expectedErrors = new Set([GitError.OutsideRepository]);
+            const successExitCodes = [0, 1];
+            const expectedErrors = [GitError.OutsideRepository];
             const result = await this.exec(repository, args, { successExitCodes, expectedErrors });
             const { exitCode } = result;
             return exitCode === 0;

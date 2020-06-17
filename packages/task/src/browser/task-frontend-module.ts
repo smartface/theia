@@ -18,7 +18,7 @@ import { ContainerModule } from 'inversify';
 import { FrontendApplicationContribution, QuickOpenContribution, KeybindingContribution } from '@theia/core/lib/browser';
 import { CommandContribution, MenuContribution, bindContributionProvider } from '@theia/core/lib/common';
 import { WebSocketConnectionProvider } from '@theia/core/lib/browser/messaging';
-import { QuickOpenTask, TaskTerminateQuickOpen, TaskRunningQuickOpen, TaskActionProvider, ConfigureTaskAction } from './quick-open-task';
+import { QuickOpenTask, TaskTerminateQuickOpen, TaskRestartRunningQuickOpen, TaskRunningQuickOpen, TaskActionProvider, ConfigureTaskAction } from './quick-open-task';
 import { TaskContribution, TaskProviderRegistry, TaskResolverRegistry } from './task-contribution';
 import { TaskService } from './task-service';
 import { TaskConfigurations } from './task-configurations';
@@ -39,6 +39,7 @@ import './tasks-monaco-contribution';
 import { TaskNameResolver } from './task-name-resolver';
 import { TaskSourceResolver } from './task-source-resolver';
 import { TaskTemplateSelector } from './task-templates';
+import { TaskTerminalWidgetManager } from './task-terminal-widget-manager';
 
 export default new ContainerModule(bind => {
     bind(TaskFrontendContribution).toSelf().inSingletonScope();
@@ -53,6 +54,7 @@ export default new ContainerModule(bind => {
     bind(QuickOpenTask).toSelf().inSingletonScope();
     bind(TaskRunningQuickOpen).toSelf().inSingletonScope();
     bind(TaskTerminateQuickOpen).toSelf().inSingletonScope();
+    bind(TaskRestartRunningQuickOpen).toSelf().inSingletonScope();
     bind(TaskConfigurations).toSelf().inSingletonScope();
     bind(ProvidedTaskConfigurations).toSelf().inSingletonScope();
     bind(TaskConfigurationManager).toSelf().inSingletonScope();
@@ -76,6 +78,7 @@ export default new ContainerModule(bind => {
     bind(TaskNameResolver).toSelf().inSingletonScope();
     bind(TaskSourceResolver).toSelf().inSingletonScope();
     bind(TaskTemplateSelector).toSelf().inSingletonScope();
+    bind(TaskTerminalWidgetManager).toSelf().inSingletonScope();
 
     bindProcessTaskModule(bind);
     bindTaskPreferences(bind);

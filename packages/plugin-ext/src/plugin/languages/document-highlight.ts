@@ -14,7 +14,7 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  ********************************************************************************/
 
-import URI from 'vscode-uri/lib/umd';
+import { URI } from 'vscode-uri';
 import * as theia from '@theia/plugin';
 import { DocumentsExtImpl } from '../documents';
 import * as types from '../types-impl';
@@ -55,7 +55,7 @@ export class DocumentHighlightAdapter {
         });
     }
 
-    /* tslint:disable-next-line:no-any */
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     private isDocumentHighlightArray(array: any): array is types.DocumentHighlight[] {
         return Array.isArray(array) && array.length > 0 && array[0] instanceof types.DocumentHighlight;
     }

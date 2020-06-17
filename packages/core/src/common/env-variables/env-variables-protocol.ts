@@ -21,6 +21,7 @@ export interface EnvVariablesServer {
     getExecPath(): Promise<string>
     getVariables(): Promise<EnvVariable[]>
     getValue(key: string): Promise<EnvVariable | undefined>
+    getConfigDirUri(): Promise<string>;
 }
 
 export interface EnvVariable {

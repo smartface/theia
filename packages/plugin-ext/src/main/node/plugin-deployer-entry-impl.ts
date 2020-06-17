@@ -14,7 +14,7 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  ********************************************************************************/
 
-import { PluginDeployerEntry, PluginDeployerEntryType } from '../../common/plugin-protocol';
+import { PluginDeployerEntry, PluginDeployerEntryType, PluginType } from '../../common/plugin-protocol';
 import * as fs from 'fs';
 
 export class PluginDeployerEntryImpl implements PluginDeployerEntry {
@@ -23,7 +23,7 @@ export class PluginDeployerEntryImpl implements PluginDeployerEntry {
 
     private currentPath: string;
 
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     private map: Map<string, any>;
 
     private resolved: boolean;
@@ -32,6 +32,9 @@ export class PluginDeployerEntryImpl implements PluginDeployerEntry {
     private changes: string[];
 
     private resolvedByName: string;
+
+    private _type = PluginType.System;
+    private _rootPath: string | undefined;
 
     constructor(readonly originId: string, readonly pluginId: string, initPath?: string) {
         this.map = new Map();
@@ -72,14 +75,14 @@ export class PluginDeployerEntryImpl implements PluginDeployerEntry {
     }
     isFile(): boolean {
         try {
-            return fs.lstatSync(this.currentPath).isFile();
+            return fs.statSync(this.currentPath).isFile();
         } catch (e) {
             return false;
         }
     }
     isDirectory(): boolean {
         try {
-            return fs.lstatSync(this.currentPath).isDirectory();
+            return fs.statSync(this.currentPath).isDirectory();
         } catch (e) {
             return false;
         }
@@ -106,6 +109,22 @@ export class PluginDeployerEntryImpl implements PluginDeployerEntry {
 
     resolvedBy(): string {
         return this.resolvedByName;
+    }
+
+    get type(): PluginType {
+        return this._type;
+    }
+
+    set type(type: PluginType) {
+        this._type = type;
+    }
+
+    get rootPath(): string {
+        return !!this._rootPath ? this._rootPath : this.path();
+    }
+
+    set rootPath(rootPath: string) {
+        this._rootPath = rootPath;
     }
 
 }

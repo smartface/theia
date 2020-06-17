@@ -23,6 +23,20 @@ import { FrontendApplicationContribution } from './frontend-application';
 @injectable()
 export class DialogProps {
     readonly title: string;
+    /**
+     * Determines the maximum width of the dialog in pixels.
+     * Default value is undefined, which would result in the css property 'max-width: none' being applied to the dialog.
+     */
+    maxWidth?: number;
+    /**
+     * Determine the word wrapping behavior for content in the dialog.
+     * - `normal`: breaks words at allowed break points.
+     * - `break-word`: breaks otherwise unbreakable words.
+     * - `initial`: sets the property to it's default value.
+     * - `inherit`: inherit this property from it's parent element.
+     * Default value is undefined, which would result in the css property 'word-wrap' not being applied to the dialog.
+     */
+    wordWrap?: 'normal' | 'break-word' | 'initial' | 'inherit';
 }
 
 export type DialogMode = 'open' | 'preview';
@@ -61,7 +75,7 @@ export class DialogOverlayService implements FrontendApplicationContribution {
         return DialogOverlayService.INSTANCE;
     }
 
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     protected readonly dialogs: AbstractDialog<any>[] = [];
 
     constructor() {
@@ -73,12 +87,12 @@ export class DialogOverlayService implements FrontendApplicationContribution {
         DialogOverlayService.INSTANCE = this;
     }
 
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     protected get currentDialog(): AbstractDialog<any> | undefined {
         return this.dialogs[0];
     }
 
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     push(dialog: AbstractDialog<any>): Disposable {
         this.dialogs.unshift(dialog);
         return Disposable.create(() => {
@@ -117,7 +131,7 @@ export abstract class AbstractDialog<T> extends BaseWidget {
     protected readonly errorMessageNode: HTMLDivElement;
 
     protected resolve: undefined | ((value: T | undefined) => void);
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     protected reject: undefined | ((reason: any) => void);
 
     protected closeButton: HTMLButtonElement | undefined;
@@ -138,6 +152,11 @@ export abstract class AbstractDialog<T> extends BaseWidget {
         }));
         const container = document.createElement('div');
         container.classList.add('dialogBlock');
+        if (props.maxWidth === undefined) {
+            container.setAttribute('style', 'max-width: none');
+        } else {
+            container.setAttribute('style', `max-width: ${props.maxWidth}px; min-width: 0px`);
+        }
         this.node.appendChild(container);
 
         const titleContentNode = document.createElement('div');
@@ -156,6 +175,9 @@ export abstract class AbstractDialog<T> extends BaseWidget {
 
         this.contentNode = document.createElement('div');
         this.contentNode.classList.add('dialogContent');
+        if (props.wordWrap !== undefined) {
+            this.contentNode.setAttribute('style', `word-wrap: ${props.wordWrap}`);
+        }
         container.appendChild(this.contentNode);
 
         this.controlPanel = document.createElement('div');
@@ -305,7 +327,7 @@ export abstract class AbstractDialog<T> extends BaseWidget {
         if (this.acceptButton) {
             this.acceptButton.disabled = !DialogError.getResult(error);
         }
-        this.errorMessageNode.innerHTML = DialogError.getMessage(error);
+        this.errorMessageNode.innerText = DialogError.getMessage(error);
     }
 
     protected addCloseAction<K extends keyof HTMLElementEventMap>(element: HTMLElement, ...additionalEventTypes: K[]): void {
@@ -383,6 +405,7 @@ export class SingleTextInputDialog extends AbstractDialog<string> {
 
         this.inputField = document.createElement('input');
         this.inputField.type = 'text';
+        this.inputField.className = 'theia-input';
         this.inputField.setAttribute('style', 'flex: 0;');
         this.inputField.value = props.initialValue || '';
         if (props.initialSelectionRange) {

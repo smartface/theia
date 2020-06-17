@@ -14,7 +14,7 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  ********************************************************************************/
 
-// tslint:disable:no-any
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { Disposable } from './disposable';
 import { MaybePromise } from './types';
@@ -52,12 +52,9 @@ export namespace Event {
      * through the mapping function.
      */
     export function map<I, O>(event: Event<I>, mapFunc: (i: I) => O): Event<O> {
-        return Object.assign((listener: (e: O) => any, thisArgs?: any, disposables?: Disposable[]) =>
-            event(i => listener.call(thisArgs, mapFunc(i)), undefined, disposables)
-            , {
-                maxListeners: 0
-            }
-        );
+        return Object.assign((listener: (e: O) => any, thisArgs?: any, disposables?: Disposable[]) => event(i => listener.call(thisArgs, mapFunc(i)), undefined, disposables), {
+            maxListeners: 0,
+        });
     }
 }
 
@@ -150,11 +147,16 @@ export interface EmitterOptions {
 
 export class Emitter<T = any> {
 
+    private static LEAK_WARNING_THRESHHOLD = 175;
+
     private static _noop = function (): void { };
 
     private _event: Event<T>;
     private _callbacks: CallbackList | undefined;
     private _disposed = false;
+
+    private _leakingStacks: Map<string, number> | undefined;
+    private _leakWarnCountdown = 0;
 
     constructor(
         private _options?: EmitterOptions
@@ -174,11 +176,13 @@ export class Emitter<T = any> {
                     this._options.onFirstListenerAdd(this);
                 }
                 this._callbacks.add(listener, thisArgs);
-                this.checkMaxListeners(this._event.maxListeners);
+                const removeMaxListenersCheck = this.checkMaxListeners(this._event.maxListeners);
 
-                let result: Disposable;
-                result = {
+                const result: Disposable = {
                     dispose: () => {
+                        if (removeMaxListenersCheck) {
+                            removeMaxListenersCheck();
+                        }
                         result.dispose = Emitter._noop;
                         if (!this._disposed) {
                             this._callbacks!.remove(listener, thisArgs);
@@ -195,21 +199,63 @@ export class Emitter<T = any> {
 
                 return result;
             }, {
-                maxListeners: 30
-            }
+                    maxListeners: Emitter.LEAK_WARNING_THRESHHOLD
+                }
             );
         }
         return this._event;
     }
 
-    protected checkMaxListeners(maxListeners: number): void {
+    protected checkMaxListeners(maxListeners: number): (() => void) | undefined {
         if (maxListeners === 0 || !this._callbacks) {
+            return undefined;
+        }
+        const listenerCount = this._callbacks.length;
+        if (listenerCount <= maxListeners) {
+            return undefined;
+        }
+
+        const popStack = this.pushLeakingStack();
+
+        this._leakWarnCountdown -= 1;
+        if (this._leakWarnCountdown <= 0) {
+            // only warn on first exceed and then every time the limit
+            // is exceeded by 50% again
+            this._leakWarnCountdown = maxListeners * 0.5;
+
+            let topStack: string;
+            let topCount = 0;
+            this._leakingStacks!.forEach((stackCount, stack) => {
+                if (!topStack || topCount < stackCount) {
+                    topStack = stack;
+                    topCount = stackCount;
+                }
+            });
+
+            // eslint-disable-next-line max-len
+            console.warn(`Possible Emitter memory leak detected. ${listenerCount} listeners added. Use event.maxListeners to increase the limit (${maxListeners}). MOST frequent listener (${topCount}):`);
+            console.warn(topStack!);
+        }
+
+        return popStack;
+    }
+
+    protected pushLeakingStack(): () => void {
+        if (!this._leakingStacks) {
+            this._leakingStacks = new Map();
+        }
+        const stack = new Error().stack!.split('\n').slice(3).join('\n');
+        const count = (this._leakingStacks.get(stack) || 0);
+        this._leakingStacks.set(stack, count + 1);
+        return () => this.popLeakingStack(stack);
+    }
+
+    protected popLeakingStack(stack: string): void {
+        if (!this._leakingStacks) {
             return;
         }
-        const count = this._callbacks.length;
-        if (count > maxListeners) {
-            console.warn(new Error(`Possible Emitter memory leak detected. ${count} listeners added. Use event.maxListeners to increase the limit (${maxListeners})`));
-        }
+        const count = (this._leakingStacks.get(stack) || 0);
+        this._leakingStacks.set(stack, count - 1);
     }
 
     /**
@@ -237,6 +283,10 @@ export class Emitter<T = any> {
     }
 
     dispose(): void {
+        if (this._leakingStacks) {
+            this._leakingStacks.clear();
+            this._leakingStacks = undefined;
+        }
         if (this._callbacks) {
             this._callbacks.dispose();
             this._callbacks = undefined;
@@ -246,7 +296,7 @@ export class Emitter<T = any> {
 }
 
 export interface WaitUntilEvent {
-    // tslint:disable:no-any
+    /* eslint-disable @typescript-eslint/no-explicit-any */
     /**
      * Allows to pause the event loop until the provided thenable resolved.
      *
@@ -255,7 +305,7 @@ export interface WaitUntilEvent {
      * @param thenable A thenable that delays execution.
      */
     waitUntil(thenable: Promise<any>): void;
-    // tslint:enable:no-any
+    /* eslint-enable @typescript-eslint/no-explicit-any */
 }
 export namespace WaitUntilEvent {
     export async function fire<T extends WaitUntilEvent>(
@@ -265,7 +315,7 @@ export namespace WaitUntilEvent {
     ): Promise<void> {
         const waitables: Promise<void>[] = [];
         const asyncEvent = Object.assign(event, {
-            // tslint:disable-next-line:no-any
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             waitUntil: (thenable: Promise<any>) => {
                 if (Object.isFrozen(waitables)) {
                     throw new Error('waitUntil cannot be called asynchronously.');

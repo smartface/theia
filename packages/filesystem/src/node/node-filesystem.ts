@@ -170,11 +170,19 @@ export class FileSystemNode implements FileSystem {
 
     async move(sourceUri: string, targetUri: string, options?: FileMoveOptions): Promise<FileStat> {
         if (this.client) {
-            this.client.onWillMove(sourceUri, targetUri);
+            await this.client.willMove(sourceUri, targetUri);
         }
-        const result = await this.doMove(sourceUri, targetUri, options);
-        if (this.client) {
-            this.client.onDidMove(sourceUri, targetUri);
+        let result: FileStat;
+        let failed = false;
+        try {
+            result = await this.doMove(sourceUri, targetUri, options);
+        } catch (e) {
+            failed = true;
+            throw e;
+        } finally {
+            if (this.client) {
+                await this.client.didMove(sourceUri, targetUri, failed);
+            }
         }
         return result;
     }
@@ -255,6 +263,25 @@ export class FileSystemNode implements FileSystem {
     }
 
     async createFile(uri: string, options?: { content?: string, encoding?: string }): Promise<FileStat> {
+        if (this.client) {
+            await this.client.willCreate(uri);
+        }
+        let result: FileStat;
+        let failed = false;
+        try {
+            result = await this.doCreateFile(uri, options);
+        } catch (e) {
+            failed = true;
+            throw e;
+        } finally {
+            if (this.client) {
+                await this.client.didCreate(uri, failed);
+            }
+        }
+        return result;
+    }
+
+    protected async doCreateFile(uri: string, options?: { content?: string, encoding?: string }): Promise<FileStat> {
         const _uri = new URI(uri);
         const parentUri = _uri.parent;
         const [stat, parentStat] = await Promise.all([this.doGetStat(_uri, 0), this.doGetStat(parentUri, 0)]);
@@ -276,6 +303,25 @@ export class FileSystemNode implements FileSystem {
     }
 
     async createFolder(uri: string): Promise<FileStat> {
+        if (this.client) {
+            await this.client.willCreate(uri);
+        }
+        let result: FileStat;
+        let failed = false;
+        try {
+            result = await this.doCreateFolder(uri);
+        } catch (e) {
+            failed = true;
+            throw e;
+        } finally {
+            if (this.client) {
+                await this.client.didCreate(uri, failed);
+            }
+        }
+        return result;
+    }
+
+    async doCreateFolder(uri: string): Promise<FileStat> {
         const _uri = new URI(uri);
         const stat = await this.doGetStat(_uri, 0);
         if (stat) {
@@ -299,7 +345,7 @@ export class FileSystemNode implements FileSystem {
             return this.createFile(uri);
         } else {
             return new Promise<FileStat>((resolve, reject) => {
-                // tslint:disable-next-line:no-any
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 touch(FileUri.fsPath(_uri), async (error: any) => {
                     if (error) {
                         reject(error);
@@ -312,6 +358,23 @@ export class FileSystemNode implements FileSystem {
     }
 
     async delete(uri: string, options?: FileDeleteOptions): Promise<void> {
+        if (this.client) {
+            await this.client.willDelete(uri);
+        }
+        let failed = false;
+        try {
+            await this.doDelete(uri, options);
+        } catch (e) {
+            failed = true;
+            throw e;
+        } finally {
+            if (this.client) {
+                await this.client.didDelete(uri, failed);
+            }
+        }
+    }
+
+    protected async doDelete(uri: string, options?: FileDeleteOptions): Promise<void> {
         const _uri = new URI(uri);
         const stat = await this.doGetStat(_uri, 0);
         if (!stat) {
@@ -327,19 +390,17 @@ export class FileSystemNode implements FileSystem {
             const filePath = FileUri.fsPath(_uri);
             const outputRootPath = paths.join(os.tmpdir(), v4());
             try {
-                await new Promise<void>((resolve, reject) => {
-                    fs.rename(filePath, outputRootPath, async error => {
-                        if (error) {
-                            reject(error);
-                            return;
-                        }
-                        resolve();
-                    });
-                });
+                await new Promise((resolve, reject) => mv(filePath, outputRootPath, { mkdirp: true, clobber: true }, async error => {
+                    if (error) {
+                        reject(error);
+                        return;
+                    }
+                    resolve(undefined);
+                }));
                 // There is no reason for the promise returned by this function not to resolve
                 // as soon as the move is complete.  Clearing up the temporary files can be
                 // done in the background.
-                fs.remove(FileUri.fsPath(outputRootPath));
+                fs.remove(outputRootPath);
             } catch (error) {
                 return fs.remove(filePath);
             }
@@ -545,7 +606,7 @@ export class FileSystemNode implements FileSystem {
 
 }
 
-// tslint:disable-next-line:no-any
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function isErrnoException(error: any | NodeJS.ErrnoException): error is NodeJS.ErrnoException {
     return (<NodeJS.ErrnoException>error).code !== undefined && (<NodeJS.ErrnoException>error).errno !== undefined;
 }

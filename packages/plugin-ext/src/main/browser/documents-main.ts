@@ -20,16 +20,17 @@ import { DisposableCollection, Disposable } from '@theia/core';
 import { MonacoEditorModel } from '@theia/monaco/lib/browser/monaco-editor-model';
 import { RPCProtocol } from '../../common/rpc-protocol';
 import { EditorModelService } from './text-editor-model-service';
-import { createUntitledResource } from './editor/untitled-resource';
+import { UntitledResourceResolver } from './editor/untitled-resource';
 import { EditorManager, EditorOpenerOptions } from '@theia/editor/lib/browser';
 import URI from '@theia/core/lib/common/uri';
-import CodeURI from 'vscode-uri';
+import { URI as CodeURI } from 'vscode-uri';
 import { ApplicationShell, Saveable } from '@theia/core/lib/browser';
 import { TextDocumentShowOptions } from '../../common/plugin-api-rpc-model';
 import { Range } from 'vscode-languageserver-types';
 import { OpenerService } from '@theia/core/lib/browser/opener-service';
 import { Reference } from '@theia/core/lib/common/reference';
 import { dispose } from '../../common/disposable-util';
+import { FileResourceResolver } from '@theia/filesystem/lib/browser';
 
 /*---------------------------------------------------------------------------------------------
  *  Copyright (c) Microsoft Corporation. All rights reserved.
@@ -51,20 +52,18 @@ export class ModelReferenceCollection {
 
     add(ref: Reference<MonacoEditorModel>): void {
         const length = ref.object.textEditorModel.getValueLength();
-        // tslint:disable-next-line: no-any
-        let handle: any;
-        let entry: { length: number, dispose(): void };
-        const _dispose = () => {
-            const idx = this.data.indexOf(entry);
+        const handle = setTimeout(_dispose, this.maxAge);
+        const entry = { length, dispose: _dispose };
+        const self = this;
+        function _dispose(): void {
+            const idx = self.data.indexOf(entry);
             if (idx >= 0) {
-                this.length -= length;
+                self.length -= length;
                 ref.dispose();
                 clearTimeout(handle);
-                this.data.splice(idx, 1);
+                self.data.splice(idx, 1);
             }
         };
-        handle = setTimeout(_dispose, this.maxAge);
-        entry = { length, dispose: _dispose };
 
         this.data.push(entry);
         this.length += length;
@@ -94,7 +93,9 @@ export class DocumentsMainImpl implements DocumentsMain, Disposable {
         rpc: RPCProtocol,
         private editorManager: EditorManager,
         private openerService: OpenerService,
-        private shell: ApplicationShell
+        private shell: ApplicationShell,
+        private untitledResourceResolver: UntitledResourceResolver,
+        private fileResourceResolver: FileResourceResolver
     ) {
         this.proxy = rpc.getProxy(MAIN_RPC_CONTEXT.DOCUMENTS_EXT);
 
@@ -110,13 +111,24 @@ export class DocumentsMainImpl implements DocumentsMain, Disposable {
             onWillSaveModelEvent.waitUntil(new Promise<monaco.editor.IIdentifiedSingleEditOperation[]>(async (resolve, reject) => {
                 setTimeout(() => reject(new Error(`Aborted onWillSaveTextDocument-event after ${this.saveTimeout}ms`)), this.saveTimeout);
                 const edits = await this.proxy.$acceptModelWillSave(onWillSaveModelEvent.model.textEditorModel.uri, onWillSaveModelEvent.reason, this.saveTimeout);
-                const transformedEdits = edits.map((edit): monaco.editor.IIdentifiedSingleEditOperation =>
-                    ({
-                        range: monaco.Range.lift(edit.range),
-                        text: edit.text!,
+                const editOperations: monaco.editor.IIdentifiedSingleEditOperation[] = [];
+                for (const edit of edits) {
+                    const { range, text } = edit;
+                    if (!range && !text) {
+                        continue;
+                    }
+                    if (range && range.startLineNumber === range.endLineNumber && range.startColumn === range.endColumn && !edit.text) {
+                        continue;
+                    }
+
+                    editOperations.push({
+                        range: range ? monaco.Range.lift(range) : onWillSaveModelEvent.model.textEditorModel.getFullModelRange(),
+                        /* eslint-disable-next-line no-null/no-null */
+                        text: text || null,
                         forceMoveMarkers: edit.forceMoveMarkers
-                    }));
-                resolve(transformedEdits);
+                    });
+                }
+                resolve(editOperations);
             }));
         }));
         this.toDispose.push(modelService.onModelDirtyChanged(m => {
@@ -169,7 +181,7 @@ export class DocumentsMainImpl implements DocumentsMain, Disposable {
     async $tryCreateDocument(options?: { language?: string; content?: string; }): Promise<UriComponents> {
         const language = options && options.language;
         const content = options && options.content;
-        const resource = createUntitledResource(content, language);
+        const resource = await this.untitledResourceResolver.createUntitledResource(this.fileResourceResolver, content, language);
         return monaco.Uri.parse(resource.uri.toString());
     }
 
@@ -239,7 +251,8 @@ export class DocumentsMainImpl implements DocumentsMain, Disposable {
             widgetOptions = undefined;
         } else if (viewColumn > 0) {
             const tabBars = shell.mainAreaTabBars;
-            const tabBar = tabBars[viewColumn];
+            // convert to zero-based index
+            const tabBar = tabBars[viewColumn - 1];
             if (tabBar && tabBar.currentTitle) {
                 widgetOptions = { ref: tabBar.currentTitle.owner };
             }

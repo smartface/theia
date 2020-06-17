@@ -19,13 +19,12 @@ import '../../src/browser/style/scm-amend-component.css';
 import * as React from 'react';
 import { ScmAvatarService } from './scm-avatar-service';
 import { StorageService } from '@theia/core/lib/browser';
-import { DisposableCollection } from '@theia/core';
+import { Disposable, DisposableCollection } from '@theia/core';
 
 import { ScmRepository } from './scm-repository';
 import { ScmAmendSupport, ScmCommit } from './scm-provider';
 
 export interface ScmAmendComponentProps {
-    id: string,
     style: React.CSSProperties | undefined,
     repository: ScmRepository,
     scmAmendSupport: ScmAmendSupport,
@@ -70,7 +69,7 @@ export class ScmAmendComponent extends React.Component<ScmAmendComponentProps, S
         if (instance && this.lastCommitHeight === 0) {
             this.lastCommitHeight = instance.getBoundingClientRect().height;
         }
-    }
+    };
 
     constructor(props: ScmAmendComponentProps) {
         super(props);
@@ -80,14 +79,26 @@ export class ScmAmendComponent extends React.Component<ScmAmendComponentProps, S
             amendingCommits: [],
             lastCommit: undefined
         };
+
+        const setState = this.setState.bind(this);
+        this.setState = newState => {
+            if (!this.toDisposeOnUnmount.disposed) {
+                setState(newState);
+            }
+        };
     }
 
     protected readonly toDisposeOnUnmount = new DisposableCollection();
 
     async componentDidMount(): Promise<void> {
+        this.toDisposeOnUnmount.push(Disposable.create(() => { /* mark as mounted */ }));
+
         const lastCommit = await this.getLastCommit();
         this.setState({ amendingCommits: await this.buildAmendingList(lastCommit ? lastCommit.commit : undefined), lastCommit });
 
+        if (this.toDisposeOnUnmount.disposed) {
+            return;
+        }
         this.toDisposeOnUnmount.push(
             this.props.repository.provider.onDidChange(() => this.fetchStatusAndSetState())
         );
@@ -108,8 +119,8 @@ export class ScmAmendComponent extends React.Component<ScmAmendComponentProps, S
         } else if (this.transitionHint === 'none') {
             // If the 'last' commit changes, but we are not expecting an 'amend'
             // or 'unamend' to occur, then we clear out the list of amended commits.
-            // This is because an unexpected change has happened to the repoistory,
-            // perhaps the user commited, merged, or something.  The amended commits
+            // This is because an unexpected change has happened to the repository,
+            // perhaps the user committed, merged, or something.  The amended commits
             // will no longer be valid.
 
             // Note that there may or may not have been a previous lastCommit (if the
@@ -209,7 +220,7 @@ export class ScmAmendComponent extends React.Component<ScmAmendComponentProps, S
     /**
      * Commits are equal if the ids are equal or if both are undefined.
      * (If a commit is undefined, it represents the initial empty state of a repository,
-     * before the inital commit).
+     * before the initial commit).
      */
     private commitsAreEqual(lastCommit: ScmCommit | undefined, savedLastCommitId: string | undefined): boolean {
         return lastCommit
@@ -230,7 +241,7 @@ export class ScmAmendComponent extends React.Component<ScmAmendComponentProps, S
 
         this.transitionHint = 'amend';
         await this.resetAndSetMessage('HEAD~', 'HEAD');
-    }
+    };
 
     protected unamend = async (): Promise<void> => {
         if (this.state.transition.state !== 'none' && this.transitionHint !== 'none') {
@@ -251,7 +262,7 @@ export class ScmAmendComponent extends React.Component<ScmAmendComponentProps, S
             this.transitionHint = 'unamend';
             await this.resetAndSetMessage(commitToRestore.commit.id, commitToUseForMessage);
         }
-    }
+    };
 
     private async resetAndSetMessage(commitToRestore: string, commitToUseForMessage: string | undefined): Promise<void> {
         const message = commitToUseForMessage
@@ -276,7 +287,7 @@ export class ScmAmendComponent extends React.Component<ScmAmendComponentProps, S
             };
 
         return (
-            <div className={ScmAmendComponent.Styles.COMMIT_CONTAINER + ' no-select'} style={style} id={this.props.id}>
+            <div className={ScmAmendComponent.Styles.COMMIT_CONTAINER + ' no-select'} style={style}>
                 {
                     this.state.amendingCommits.length > 0 || (this.state.lastCommit && this.state.transition.state !== 'none' && this.state.transition.direction === 'down')
                         ? this.renderAmendingCommits()
@@ -285,10 +296,10 @@ export class ScmAmendComponent extends React.Component<ScmAmendComponentProps, S
                 {
                     this.state.lastCommit ?
                         <div>
-                            <div id='lastCommit' className='changesContainer'>
+                            <div id='lastCommit' className='theia-scm-amend'>
                                 <div className='theia-header scm-theia-header'>
                                     HEAD Commit
-                            </div>
+                                </div>
                                 {this.renderLastCommit()}
                             </div>
                         </div>
@@ -442,7 +453,7 @@ export class ScmAmendComponent extends React.Component<ScmAmendComponentProps, S
                         ? <div className={ScmAmendComponent.Styles.FLEX_CENTER}>
                             <button className='theia-button' title='Unamend commit' onClick={this.unamend}>
                                 Unamend
-                        </button>
+                            </button>
                         </div>
                         : ''
                 }
@@ -507,8 +518,6 @@ export class ScmAmendComponent extends React.Component<ScmAmendComponentProps, S
                         };
                 }
         }
-
-        throw new Error('Invalid value for transtition state: ' + this.state.transition.state);
     }
 
     protected styleLastCommitMovingUp(transitionState: 'start' | 'transitioning'): React.CSSProperties {

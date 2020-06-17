@@ -13,7 +13,7 @@
  *
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  ********************************************************************************/
- /*---------------------------------------------------------------------------------------------
+/*---------------------------------------------------------------------------------------------
  *  Copyright (c) Microsoft Corporation and others. All rights reserved.
  *  Licensed under the MIT License. See https://github.com/Microsoft/vscode/blob/master/LICENSE.txt for license information.
  *--------------------------------------------------------------------------------------------*/
@@ -21,7 +21,7 @@
 import { Disposable, DisposableCollection, Event, Emitter } from '@theia/core';
 
 export interface MonacoEditorViewZone extends monaco.editor.IViewZone {
-    id: number
+    id: string;
 }
 
 export class MonacoEditorZoneWidget implements Disposable {
@@ -66,7 +66,7 @@ export class MonacoEditorZoneWidget implements Disposable {
 
     show(options: MonacoEditorZoneWidget.Options): void {
         let { afterLineNumber, afterColumn, heightInLines } = this._options = { showFrame: true, ...options };
-        const lineHeight = this.editor.getConfiguration().lineHeight;
+        const lineHeight = this.editor.getOption(monaco.editor.EditorOption.lineHeight);
         const maxHeightInLines = (this.editor.getLayoutInfo().height / lineHeight) * .8;
         if (heightInLines >= maxHeightInLines) {
             heightInLines = maxHeightInLines;
@@ -95,7 +95,7 @@ export class MonacoEditorZoneWidget implements Disposable {
             const widget: monaco.editor.IOverlayWidget = {
                 getId: () => 'editor-zone-widget-' + id,
                 getDomNode: () => this.zoneNode,
-                // tslint:disable-next-line:no-null-keyword
+                // eslint-disable-next-line no-null/no-null
                 getPosition: () => null!
             };
             this.editor.addOverlayWidget(widget);
@@ -140,7 +140,7 @@ export class MonacoEditorZoneWidget implements Disposable {
         height: number,
         frameWidth: number
     } {
-        const lineHeight = this.editor.getConfiguration().lineHeight;
+        const lineHeight = this.editor.getOption(monaco.editor.EditorOption.lineHeight);
         const frameWidth = this._options && this._options.frameWidth;
         const frameThickness = this._options && this._options.showFrame ? Math.round(lineHeight / 9) : 0;
         return {

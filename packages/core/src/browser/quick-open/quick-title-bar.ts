@@ -110,7 +110,7 @@ export class QuickTitleBar {
         this.titleElement.innerText = innerTitle;
     }
 
-    // Left buttons are for the buttons dervied from QuickInputButtons
+    // Left buttons are for the buttons derived from QuickInputButtons
     private getLeftButtons(): ReadonlyArray<QuickTitleButton> {
         if (this._buttons === undefined || this._buttons.length === 0) {
             return [];
@@ -180,7 +180,7 @@ export class QuickTitleBar {
         return rightButtonDiv;
     }
 
-    // tslint:disable-next-line:max-line-length
+    // eslint-disable-next-line max-len
     public attachTitleBar(widgetNode: HTMLElement, title: string | undefined, step: number | undefined, totalSteps: number | undefined, buttons: ReadonlyArray<QuickTitleButton> | undefined): void {
         const div = this.createTitleBarDiv();
 

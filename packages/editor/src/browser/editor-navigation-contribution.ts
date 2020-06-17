@@ -79,7 +79,17 @@ export class EditorNavigationContribution implements Disposable, FrontendApplica
         });
         this.commandRegistry.registerHandler(EditorCommands.TOGGLE_MINIMAP.id, {
             execute: () => this.toggleMinimap(),
-            isEnabled: () => true
+            isEnabled: () => true,
+            isToggled: () => this.isMinimapEnabled()
+        });
+        this.commandRegistry.registerHandler(EditorCommands.TOGGLE_RENDER_WHITESPACE.id, {
+            execute: () => this.toggleRenderWhitespace(),
+            isEnabled: () => true,
+            isToggled: () => this.isRenderWhitespaceEnabled()
+        });
+        this.commandRegistry.registerHandler(EditorCommands.TOGGLE_WORD_WRAP.id, {
+            execute: () => this.toggleWordWrap(),
+            isEnabled: () => true,
         });
     }
 
@@ -97,11 +107,43 @@ export class EditorNavigationContribution implements Disposable, FrontendApplica
     }
 
     /**
+     * Toggle the editor word wrap behavior.
+     */
+    protected async toggleWordWrap(): Promise<void> {
+        // Get the current word wrap.
+        const wordWrap: string | undefined = this.preferenceService.get('editor.wordWrap');
+        if (wordWrap === undefined) {
+            return;
+        }
+        // The list of allowed word wrap values.
+        const values: string[] = ['off', 'on', 'wordWrapColumn', 'bounded'];
+        // Get the index of the current value, and toggle to the next available value.
+        const index = values.indexOf(wordWrap) + 1;
+        if (index > -1) {
+            this.preferenceService.set('editor.wordWrap', values[index % values.length], PreferenceScope.User);
+        }
+    }
+
+    /**
      * Toggle the display of minimap in the editor.
      */
     protected async toggleMinimap(): Promise<void> {
         const value: boolean | undefined = this.preferenceService.get('editor.minimap.enabled');
         this.preferenceService.set('editor.minimap.enabled', !value, PreferenceScope.User);
+    }
+
+    /**
+     * Toggle the rendering of whitespace in the editor.
+     */
+    protected async toggleRenderWhitespace(): Promise<void> {
+        const renderWhitespace: string | undefined = this.preferenceService.get('editor.renderWhitespace');
+        let updatedRenderWhitespace: string;
+        if (renderWhitespace === 'none') {
+            updatedRenderWhitespace = 'all';
+        } else {
+            updatedRenderWhitespace = 'none';
+        }
+        this.preferenceService.set('editor.renderWhitespace', updatedRenderWhitespace, PreferenceScope.User);
     }
 
     protected onCurrentEditorChanged(editorWidget: EditorWidget | undefined): void {
@@ -165,6 +207,15 @@ export class EditorNavigationContribution implements Disposable, FrontendApplica
             }
             this.locationStack.register(...locations);
         }
+    }
+
+    private isMinimapEnabled(): boolean {
+        return !!this.preferenceService.get('editor.minimap.enabled');
+    }
+
+    private isRenderWhitespaceEnabled(): boolean {
+        const renderWhitespace = this.preferenceService.get('editor.renderWhitespace');
+        return renderWhitespace === 'none' ? false : true;
     }
 
 }

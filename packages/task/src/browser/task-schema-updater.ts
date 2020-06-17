@@ -20,6 +20,8 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
+import * as Ajv from 'ajv';
+import debounce = require('p-debounce');
 import { injectable, inject, postConstruct } from 'inversify';
 import { JsonSchemaStore } from '@theia/core/lib/browser/json-schema-store';
 import { InMemoryResources, deepClone, Emitter } from '@theia/core/lib/common';
@@ -29,6 +31,7 @@ import URI from '@theia/core/lib/common/uri';
 import { ProblemMatcherRegistry } from './task-problem-matcher-registry';
 import { TaskDefinitionRegistry } from './task-definition-registry';
 import { TaskServer } from '../common';
+import { USER_TASKS_URI } from './task-configurations';
 
 export const taskSchemaId = 'vscode://schemas/tasks';
 
@@ -70,22 +73,31 @@ export class TaskSchemaUpdater {
         this.taskDefinitionRegistry.onDidUnregisterTaskDefinition(() => this.updateSupportedTaskTypes());
     }
 
-    update(): void {
+    readonly update = debounce(() => this.doUpdate(), 0);
+    protected doUpdate(): void {
         const taskSchemaUri = new URI(taskSchemaId);
 
         taskConfigurationSchema.anyOf = [processTaskConfigurationSchema, ...customizedDetectedTasks, ...customSchemas];
 
-        const schemaContent = this.getStringifiedTaskSchema();
+        const schema = this.getTaskSchema();
+        this.doValidate = new Ajv().compile(schema);
+        const schemaContent = JSON.stringify(schema);
         try {
             this.inmemoryResources.update(taskSchemaUri, schemaContent);
         } catch (e) {
             this.inmemoryResources.add(taskSchemaUri, schemaContent);
             this.jsonSchemaStore.registerSchema({
-                fileMatch: ['tasks.json'],
+                fileMatch: ['tasks.json', USER_TASKS_URI.toString()],
                 url: taskSchemaUri.toString()
             });
         }
     }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    validate(data: any): boolean {
+        return !!this.doValidate && !!this.doValidate(data);
+    }
+    protected doValidate: Ajv.ValidateFunction | undefined;
 
     /**
      * Adds given task schema to `taskConfigurationSchema` as `oneOf` subschema.
@@ -161,7 +173,9 @@ export class TaskSchemaUpdater {
                 }
                 customizedDetectedTask.properties![taskProp] = { ...def.properties.schema.properties![taskProp] };
             });
+            customizedDetectedTask.properties!.label = taskLabel;
             customizedDetectedTask.properties!.problemMatcher = problemMatcher;
+            customizedDetectedTask.properties!.presentation = presentation;
             customizedDetectedTask.properties!.options = commandOptionsSchema;
             customizedDetectedTask.properties!.group = group;
             customizedDetectedTask.additionalProperties = true;
@@ -170,7 +184,7 @@ export class TaskSchemaUpdater {
     }
 
     /** Returns the task's JSON schema */
-    getTaskSchema(): IJSONSchema {
+    protected getTaskSchema(): IJSONSchema {
         return {
             type: 'object',
             properties: {
@@ -187,11 +201,6 @@ export class TaskSchemaUpdater {
             },
             additionalProperties: false
         };
-    }
-
-    /** Returns the task's JSON schema as a string */
-    private getStringifiedTaskSchema(): string {
-        return JSON.stringify(this.getTaskSchema());
     }
 
     /** Gets the most up-to-date names of problem matchers from the registry and update the task schema */
@@ -309,7 +318,7 @@ const group = {
         'Marks the task as a test task accessible through the \'Run Test Task\' command.',
         'Assigns the task to no group'
     ],
-    // tslint:disable-next-line:max-line-length
+    // eslint-disable-next-line max-len
     description: 'Defines to which execution group this task belongs to. It supports "build" to add it to the build group and "test" to add it to the test group.'
 };
 
@@ -336,6 +345,7 @@ const problemPattern: IJSONSchema = {
         },
         location: {
             type: 'integer',
+            // eslint-disable-next-line max-len
             description: 'The match group index of the problem\'s location. Valid location patterns are: (line), (line,column) and (startLine,startColumn,endLine,endColumn). If omitted (line,column) is assumed.'
         },
         line: {
@@ -368,6 +378,7 @@ const problemPattern: IJSONSchema = {
         },
         loop: {
             type: 'boolean',
+            // eslint-disable-next-line max-len
             description: 'In a multi line matcher loop indicated whether this pattern is executed in a loop as long as it matches. Can only specified on a last pattern in a multi line pattern.'
         }
     }
@@ -410,6 +421,7 @@ const problemMatcherObject: IJSONSchema = {
     properties: {
         base: {
             type: 'string',
+            enum: problemMatcherNames,
             description: 'The name of a base problem matcher to use.'
         },
         owner: {
@@ -532,6 +544,65 @@ const problemMatcher = {
     ]
 };
 
+const presentation: IJSONSchema = {
+    type: 'object',
+    default: {
+        echo: true,
+        reveal: 'always',
+        focus: false,
+        panel: 'shared',
+        showReuseMessage: true,
+        clear: false
+    },
+    description: 'Configures the panel that is used to present the task\'s output and reads its input.',
+    additionalProperties: true,
+    properties: {
+        echo: {
+            type: 'boolean',
+            default: true,
+            description: 'Controls whether the executed command is echoed to the panel. Default is true.'
+        },
+        focus: {
+            type: 'boolean',
+            default: false,
+            description: 'Controls whether the panel takes focus. Default is false. If set to true the panel is revealed as well.'
+        },
+        reveal: {
+            type: 'string',
+            enum: ['always', 'silent', 'never'],
+            enumDescriptions: [
+                'Always reveals the terminal when this task is executed.',
+                'Only reveals the terminal if the task exits with an error or the problem matcher finds an error.',
+                'Never reveals the terminal when this task is executed.'
+            ],
+            default: 'always',
+            description: 'Controls whether the terminal running the task is revealed or not. May be overridden by option \"revealProblems\". Default is \"always\".'
+        },
+        panel: {
+            type: 'string',
+            enum: ['shared', 'dedicated', 'new'],
+            enumDescriptions: [
+                'The terminal is shared and the output of other task runs are added to the same terminal.',
+                // eslint-disable-next-line max-len
+                'The terminal is dedicated to a specific task. If that task is executed again, the terminal is reused. However, the output of a different task is presented in a different terminal.',
+                'Every execution of that task is using a new clean terminal.'
+            ],
+            default: 'shared',
+            description: 'Controls if the panel is shared between tasks, dedicated to this task or a new one is created on every run.'
+        },
+        showReuseMessage: {
+            type: 'boolean',
+            default: true,
+            description: 'Controls whether to show the "Terminal will be reused by tasks" message.'
+        },
+        clear: {
+            type: 'boolean',
+            default: false,
+            description: 'Controls whether the terminal is cleared before this task is run.'
+        }
+    }
+};
+
 const taskIdentifier: IJSONSchema = {
     type: 'object',
     additionalProperties: true,
@@ -603,7 +674,8 @@ const processTaskConfigurationSchema: IJSONSchema = {
             properties: commandAndArgs
         },
         group,
-        problemMatcher
+        problemMatcher,
+        presentation
     },
     additionalProperties: true
 };

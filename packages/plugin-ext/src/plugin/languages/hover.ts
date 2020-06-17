@@ -15,7 +15,7 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  ********************************************************************************/
 
-import URI from 'vscode-uri/lib/umd';
+import { URI } from 'vscode-uri';
 import * as theia from '@theia/plugin';
 import { DocumentsExtImpl } from '../documents';
 import { Hover } from '../../common/plugin-api-rpc-model';
@@ -40,7 +40,7 @@ export class HoverAdapter {
         const pos = Converter.toPosition(position);
 
         return Promise.resolve(this.provider.provideHover(doc, pos, token)).then(value => {
-            /* tslint:disable-next-line:no-any */
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             if (!value || !Array.isArray(value.contents) || (value.contents as Array<any>).length === 0) {
                 return undefined;
             }

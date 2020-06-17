@@ -14,7 +14,7 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  ********************************************************************************/
 
-import URI from 'vscode-uri/lib/umd';
+import { URI } from 'vscode-uri';
 import * as theia from '@theia/plugin';
 import { DocumentsExtImpl } from '../documents';
 import { DocumentLink } from '../../common/plugin-api-rpc-model';
@@ -68,6 +68,12 @@ export class LinkProviderAdapter {
                 return Converter.fromDocumentLink(value);
             }
             return undefined;
+        });
+    }
+
+    releaseDocumentLinks(ids: number[]): void {
+        ids.forEach(id => {
+            this.cache.delete(id);
         });
     }
 }

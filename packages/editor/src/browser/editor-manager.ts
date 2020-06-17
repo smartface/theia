@@ -52,7 +52,42 @@ export class EditorManager extends NavigatableWidgetOpenHandler<EditorWidget> {
         super.init();
         this.shell.activeChanged.connect(() => this.updateActiveEditor());
         this.shell.currentChanged.connect(() => this.updateCurrentEditor());
-        this.onCreated(widget => widget.disposed.connect(() => this.updateCurrentEditor()));
+        this.onCreated(widget => {
+            widget.onDidChangeVisibility(() => {
+                if (widget.isVisible) {
+                    this.addRecentlyVisible(widget);
+                } else {
+                    this.removeRecentlyVisible(widget);
+                }
+                this.updateCurrentEditor();
+            });
+            widget.disposed.connect(() => {
+                this.removeRecentlyVisible(widget);
+                this.updateCurrentEditor();
+            });
+        });
+        for (const widget of this.all) {
+            if (widget.isVisible) {
+                this.addRecentlyVisible(widget);
+            }
+        }
+        this.updateCurrentEditor();
+    }
+
+    protected readonly recentlyVisibleIds: string[] = [];
+    protected get recentlyVisible(): EditorWidget | undefined {
+        const id = this.recentlyVisibleIds[0];
+        return id && this.all.find(w => w.id === id) || undefined;
+    }
+    protected addRecentlyVisible(widget: EditorWidget): void {
+        this.removeRecentlyVisible(widget);
+        this.recentlyVisibleIds.unshift(widget.id);
+    }
+    protected removeRecentlyVisible(widget: EditorWidget): void {
+        const index = this.recentlyVisibleIds.indexOf(widget.id);
+        if (index !== -1) {
+            this.recentlyVisibleIds.splice(index, 1);
+        }
     }
 
     protected _activeEditor: EditorWidget | undefined;
@@ -93,7 +128,7 @@ export class EditorManager extends NavigatableWidgetOpenHandler<EditorWidget> {
         if (widget instanceof EditorWidget) {
             this.setCurrentEditor(widget);
         } else if (!this._currentEditor || !this._currentEditor.isVisible) {
-            this.setCurrentEditor(undefined);
+            this.setCurrentEditor(this.recentlyVisible);
         }
     }
 
@@ -103,14 +138,28 @@ export class EditorManager extends NavigatableWidgetOpenHandler<EditorWidget> {
 
     async open(uri: URI, options?: EditorOpenerOptions): Promise<EditorWidget> {
         const editor = await super.open(uri, options);
-        this.revealSelection(editor, options);
+        this.revealSelection(editor, options, uri);
         return editor;
     }
 
-    protected revealSelection(widget: EditorWidget, input?: EditorOpenerOptions): void {
-        if (input && input.selection) {
+    protected revealSelection(widget: EditorWidget, input?: EditorOpenerOptions, uri?: URI): void {
+        let inputSelection = input && input.selection;
+        if (!inputSelection && uri) {
+            const match = /^L?(\d+)(?:,(\d+))?/.exec(uri.fragment);
+            if (match) {
+                // support file:///some/file.js#73,84
+                // support file:///some/file.js#L73
+                inputSelection = {
+                    start: {
+                        line: parseInt(match[1]) - 1,
+                        character: match[2] ? parseInt(match[2]) - 1 : 0
+                    }
+                };
+            }
+        }
+        if (inputSelection) {
             const editor = widget.editor;
-            const selection = this.getSelection(widget, input.selection);
+            const selection = this.getSelection(widget, inputSelection);
             if (Position.is(selection)) {
                 editor.cursor = selection;
                 editor.revealPosition(selection);

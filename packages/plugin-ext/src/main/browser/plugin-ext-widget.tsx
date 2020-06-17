@@ -21,8 +21,7 @@ import { PluginMetadata } from '../../common/plugin-protocol';
 import { ReactWidget } from '@theia/core/lib/browser/widgets/react-widget';
 import { AlertMessage } from '@theia/core/lib/browser/widgets/alert-message';
 import { HostedPluginSupport, PluginProgressLocation } from '../../hosted/browser/hosted-plugin';
-import { ProgressLocationService } from '@theia/core/lib/browser/progress-location-service';
-import { ProgressBar } from '@theia/core/lib/browser/progress-bar';
+import { ProgressBarFactory } from '@theia/core/lib/browser/progress-bar-factory';
 import { DisposableCollection } from '@theia/core/lib/common/disposable';
 
 @injectable()
@@ -31,8 +30,8 @@ export class PluginWidget extends ReactWidget {
     @inject(HostedPluginSupport)
     protected readonly pluginService: HostedPluginSupport;
 
-    @inject(ProgressLocationService)
-    protected readonly progressLocationService: ProgressLocationService;
+    @inject(ProgressBarFactory)
+    protected readonly progressBarFactory: ProgressBarFactory;
 
     constructor() {
         super();
@@ -64,8 +63,7 @@ export class PluginWidget extends ReactWidget {
             this.toDisposeProgress.dispose();
             this.toDispose.push(this.toDisposeProgress);
             if (ref) {
-                const onProgress = this.progressLocationService.onProgress(PluginProgressLocation);
-                this.toDisposeProgress.push(new ProgressBar({ container: ref, insertMode: 'prepend' }, onProgress));
+                this.toDispose.push(this.progressBarFactory({ container: this.node, insertMode: 'prepend', locationId: PluginProgressLocation }));
             }
         }}>{this.doRender()}</div>;
     }
@@ -80,7 +78,7 @@ export class PluginWidget extends ReactWidget {
 
     protected renderPlugins(plugins: PluginMetadata[]): React.ReactNode {
         return <div id='pluginListContainer'>
-            {plugins.map(plugin => this.renderPlugin(plugin))}
+            {plugins.sort((a, b) => this.compareMetadata(a, b)).map(plugin => this.renderPlugin(plugin))}
         </div>;
     }
 
@@ -107,5 +105,24 @@ export class PluginWidget extends ReactWidget {
     protected createPluginClassName(plugin: PluginMetadata): string {
         const classNames = ['pluginHeaderContainer'];
         return classNames.join(' ');
+    }
+
+    /**
+     * Compare two plugins based on their names, and publishers.
+     * @param a the first plugin metadata.
+     * @param b the second plugin metadata.
+     */
+    protected compareMetadata(a: PluginMetadata, b: PluginMetadata): number {
+        // Determine the name of the plugins.
+        const nameA = a.model.name.toLowerCase();
+        const nameB = b.model.name.toLowerCase();
+
+        // Determine the publisher of the plugin (when names are equal).
+        const publisherA = a.model.publisher.toLowerCase();
+        const publisherB = b.model.publisher.toLowerCase();
+
+        return (nameA === nameA)
+            ? nameA.localeCompare(nameB)
+            : publisherA.localeCompare(publisherB);
     }
 }

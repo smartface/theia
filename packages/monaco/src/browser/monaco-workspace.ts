@@ -14,14 +14,14 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  ********************************************************************************/
 
-// tslint:disable:no-null-keyword
+/* eslint-disable no-null/no-null */
 
-import Uri from 'vscode-uri';
+import { URI as Uri } from 'vscode-uri';
 import { injectable, inject, postConstruct } from 'inversify';
 import { ProtocolToMonacoConverter, MonacoToProtocolConverter, testGlob } from 'monaco-languageclient';
 import URI from '@theia/core/lib/common/uri';
 import { DisposableCollection } from '@theia/core/lib/common';
-import { FileSystem, } from '@theia/filesystem/lib/common';
+import { FileSystem, FileStat, } from '@theia/filesystem/lib/common';
 import { FileChangeType, FileSystemWatcher } from '@theia/filesystem/lib/browser';
 import { WorkspaceService } from '@theia/workspace/lib/browser';
 import { EditorManager, EditorOpenerOptions } from '@theia/editor/lib/browser';
@@ -32,6 +32,7 @@ import { WillSaveMonacoModelEvent, MonacoEditorModel, MonacoModelContentChangedE
 import { MonacoEditor } from './monaco-editor';
 import { MonacoConfigurations } from './monaco-configurations';
 import { ProblemManager } from '@theia/markers/lib/browser';
+import { MaybePromise } from '@theia/core/lib/common/types';
 
 export interface MonacoDidChangeTextDocumentParams extends lang.DidChangeTextDocumentParams {
     readonly textDocument: MonacoEditorModel;
@@ -60,8 +61,8 @@ export interface CreateResourceEdit extends ResourceEdit {
 export namespace CreateResourceEdit {
     export function is(arg: Edit): arg is CreateResourceEdit {
         return 'newUri' in arg
-            && typeof (arg as any).newUri === 'string' // tslint:disable-line:no-any
-            && (!('oldUri' in arg) || typeof (arg as any).oldUri === 'undefined'); // tslint:disable-line:no-any
+            && typeof (arg as any).newUri === 'string' // eslint-disable-line @typescript-eslint/no-explicit-any
+            && (!('oldUri' in arg) || typeof (arg as any).oldUri === 'undefined'); // eslint-disable-line @typescript-eslint/no-explicit-any
     }
 }
 
@@ -71,8 +72,8 @@ export interface DeleteResourceEdit extends ResourceEdit {
 export namespace DeleteResourceEdit {
     export function is(arg: Edit): arg is DeleteResourceEdit {
         return 'oldUri' in arg
-            && typeof (arg as any).oldUri === 'string' // tslint:disable-line:no-any
-            && (!('newUri' in arg) || typeof (arg as any).newUri === 'undefined'); // tslint:disable-line:no-any
+            && typeof (arg as any).oldUri === 'string' // eslint-disable-line @typescript-eslint/no-explicit-any
+            && (!('newUri' in arg) || typeof (arg as any).newUri === 'undefined'); // eslint-disable-line @typescript-eslint/no-explicit-any
     }
 }
 
@@ -83,9 +84,9 @@ export interface RenameResourceEdit extends ResourceEdit {
 export namespace RenameResourceEdit {
     export function is(arg: Edit): arg is RenameResourceEdit {
         return 'oldUri' in arg
-            && typeof (arg as any).oldUri === 'string' // tslint:disable-line:no-any
+            && typeof (arg as any).oldUri === 'string' // eslint-disable-line @typescript-eslint/no-explicit-any
             && 'newUri' in arg
-            && typeof (arg as any).newUri === 'string'; // tslint:disable-line:no-any
+            && typeof (arg as any).newUri === 'string'; // eslint-disable-line @typescript-eslint/no-explicit-any
     }
 }
 
@@ -97,7 +98,7 @@ export interface TextEdits {
 export namespace TextEdits {
     export function is(arg: Edit): arg is TextEdits {
         return 'uri' in arg
-            && typeof (arg as any).uri === 'string'; // tslint:disable-line:no-any
+            && typeof (arg as any).uri === 'string'; // eslint-disable-line @typescript-eslint/no-explicit-any
     }
     export function isVersioned(arg: TextEdits): boolean {
         return is(arg) && arg.version !== undefined;
@@ -111,11 +112,22 @@ export namespace EditsByEditor {
     export function is(arg: Edit): arg is EditsByEditor {
         return TextEdits.is(arg)
             && 'editor' in arg
-            && (arg as any).editor instanceof MonacoEditor; // tslint:disable-line:no-any
+            && (arg as any).editor instanceof MonacoEditor; // eslint-disable-line @typescript-eslint/no-explicit-any
     }
 }
 
 export type Edit = TextEdits | ResourceEdit;
+
+export interface WorkspaceFoldersChangeEvent {
+    readonly added: WorkspaceFolder[];
+    readonly removed: WorkspaceFolder[];
+}
+
+export interface WorkspaceFolder {
+    readonly uri: Uri;
+    readonly name: string;
+    readonly index: number;
+}
 
 @injectable()
 export class MonacoWorkspace implements lang.Workspace {
@@ -147,6 +159,9 @@ export class MonacoWorkspace implements lang.Workspace {
     protected readonly onDidSaveTextDocumentEmitter = new Emitter<MonacoEditorModel>();
     readonly onDidSaveTextDocument = this.onDidSaveTextDocumentEmitter.event;
 
+    protected readonly onDidChangeWorkspaceFoldersEmitter = new Emitter<WorkspaceFoldersChangeEvent>();
+    readonly onDidChangeWorkspaceFolders = this.onDidChangeWorkspaceFoldersEmitter.event;
+
     @inject(FileSystem)
     protected readonly fileSystem: FileSystem;
 
@@ -174,14 +189,19 @@ export class MonacoWorkspace implements lang.Workspace {
     @inject(ProblemManager)
     protected readonly problems: ProblemManager;
 
+    protected _workspaceFolders: WorkspaceFolder[] = [];
+    get workspaceFolders(): WorkspaceFolder[] {
+        return this._workspaceFolders;
+    }
+
     @postConstruct()
-    protected init(): void {
-        this.workspaceService.roots.then(roots => {
-            const rootStat = roots[0];
-            if (rootStat) {
-                this._rootUri = rootStat.uri;
-                this.resolveReady();
-            }
+    protected async init(): Promise<void> {
+        const roots = await this.workspaceService.roots;
+        this.updateWorkspaceFolders(roots);
+        this.resolveReady();
+
+        this.workspaceService.onWorkspaceChanged(async newRootDirs => {
+            this.updateWorkspaceFolders(newRootDirs);
         });
 
         for (const model of this.textModelService.models) {
@@ -190,13 +210,39 @@ export class MonacoWorkspace implements lang.Workspace {
         this.textModelService.onDidCreate(model => this.fireDidOpen(model));
     }
 
-    protected _rootUri: string | null = null;
+    protected updateWorkspaceFolders(newRootDirs: FileStat[]): void {
+        const oldWorkspaceUris = this.workspaceFolders.map(folder => folder.uri.toString());
+        const newWorkspaceUris = newRootDirs.map(folder => folder.uri);
+        const added = newWorkspaceUris.filter(uri => oldWorkspaceUris.indexOf(uri) < 0).map((dir, index) => this.toWorkspaceFolder(dir, index));
+        const removed = oldWorkspaceUris.filter(uri => newWorkspaceUris.indexOf(uri) < 0).map((dir, index) => this.toWorkspaceFolder(dir, index));
+        this._workspaceFolders = newWorkspaceUris.map(this.toWorkspaceFolder);
+        this.onDidChangeWorkspaceFoldersEmitter.fire({ added, removed });
+    }
+
+    protected toWorkspaceFolder(uriString: string, index: number): WorkspaceFolder {
+        const uri = Uri.parse(uriString);
+        const path = uri.path;
+        return {
+            uri,
+            name: path.substring(path.lastIndexOf('/') + 1),
+            index
+        };
+    }
+
     get rootUri(): string | null {
-        return this._rootUri;
+        if (this._workspaceFolders.length > 0) {
+            return this._workspaceFolders[0].uri.toString();
+        } else {
+            return null;
+        }
     }
 
     get rootPath(): string | null {
-        return this._rootUri && new URI(this._rootUri).path.toString();
+        if (this._workspaceFolders.length > 0) {
+            return new URI(this._workspaceFolders[0].uri).path.toString();
+        } else {
+            return null;
+        }
     }
 
     get textDocuments(): MonacoEditorModel[] {
@@ -276,7 +322,12 @@ export class MonacoWorkspace implements lang.Workspace {
         this.onDidSaveTextDocumentEmitter.fire(model);
     }
 
+    protected suppressedOpenIfDirty: MonacoEditorModel[] = [];
+
     protected openEditorIfDirty(model: MonacoEditorModel): void {
+        if (this.suppressedOpenIfDirty.indexOf(model) !== -1) {
+            return;
+        }
         if (model.dirty && MonacoEditor.findByDocument(this.editorManager, model).length === 0) {
             // create a new reference to make sure the model is not disposed before it is
             // acquired by the editor, thus losing the changes that made it dirty.
@@ -285,6 +336,18 @@ export class MonacoWorkspace implements lang.Workspace {
                     mode: 'open',
                 }).then(editor => ref.dispose());
             });
+        }
+    }
+
+    protected async suppressOpenIfDirty(model: MonacoEditorModel, cb: () => MaybePromise<void>): Promise<void> {
+        this.suppressedOpenIfDirty.push(model);
+        try {
+            await cb();
+        } finally {
+            const i = this.suppressedOpenIfDirty.indexOf(model);
+            if (i !== -1) {
+                this.suppressedOpenIfDirty.splice(i, 1);
+            }
         }
     }
 
@@ -331,6 +394,23 @@ export class MonacoWorkspace implements lang.Workspace {
         };
     }
 
+    /**
+     * Applies given edits to the given model.
+     * The model is saved if no editors is opened for it.
+     */
+    applyBackgroundEdit(model: MonacoEditorModel, editOperations: monaco.editor.IIdentifiedSingleEditOperation[]): Promise<void> {
+        return this.suppressOpenIfDirty(model, async () => {
+            const editor = MonacoEditor.findByDocument(this.editorManager, model)[0];
+            const cursorState = editor && editor.getControl().getSelections() || [];
+            model.textEditorModel.pushStackElement();
+            model.textEditorModel.pushEditOperations(cursorState, editOperations, () => cursorState);
+            model.textEditorModel.pushStackElement();
+            if (!editor) {
+                await model.save();
+            }
+        });
+    }
+
     async applyEdit(changes: lang.WorkspaceEdit, options?: EditorOpenerOptions): Promise<boolean> {
         const workspaceEdit = this.p2m.asWorkspaceEdit(changes);
         await this.applyBulkEdit(workspaceEdit, options);
@@ -363,7 +443,7 @@ export class MonacoWorkspace implements lang.Workspace {
                     totalFiles += 1;
                     totalEdits += editOperations.length;
                 } else if (CreateResourceEdit.is(edit) || DeleteResourceEdit.is(edit) || RenameResourceEdit.is(edit)) {
-                    this.performResourceEdit(edit);
+                    await this.performResourceEdit(edit);
                 } else {
                     throw new Error(`Unexpected edit type: ${JSON.stringify(edit)}`);
                 }
@@ -496,7 +576,7 @@ export class MonacoWorkspace implements lang.Workspace {
     }
 
     protected isResourceFileEdit(edit: monaco.languages.ResourceFileEdit | monaco.languages.ResourceTextEdit): edit is monaco.languages.ResourceTextEdit {
-        // tslint:disable-next-line:no-any
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         return 'resource' in edit && (edit as any).resource instanceof monaco.Uri;
     }
 

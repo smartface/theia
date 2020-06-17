@@ -14,7 +14,7 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  ********************************************************************************/
 
-// tslint:disable:no-any
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import URI from '@theia/core/lib/common/uri';
 import { EditorPreferenceChange, EditorPreferences, TextEditor, DiffNavigator } from '@theia/editor/lib/browser';
 import { DiffUris } from '@theia/core/lib/browser/diff-uris';
@@ -36,6 +36,9 @@ import { MonacoBulkEditService } from './monaco-bulk-edit-service';
 import IEditorOverrideServices = monaco.editor.IEditorOverrideServices;
 import { ApplicationServer } from '@theia/core/lib/common/application-protocol';
 import { OS } from '@theia/core';
+import { KeybindingRegistry, OpenerService, open, WidgetOpenerOptions } from '@theia/core/lib/browser';
+import { MonacoResolvedKeybinding } from './monaco-resolved-keybinding';
+import { HttpOpenHandlerOptions } from '@theia/core/lib/browser/http-open-handler';
 
 @injectable()
 export class MonacoEditorProvider {
@@ -45,6 +48,12 @@ export class MonacoEditorProvider {
 
     @inject(MonacoEditorServices)
     protected readonly services: MonacoEditorServices;
+
+    @inject(KeybindingRegistry)
+    protected readonly keybindingRegistry: KeybindingRegistry;
+
+    @inject(OpenerService)
+    protected readonly openerService: OpenerService;
 
     private isWindowsBackend: boolean = false;
 
@@ -79,7 +88,7 @@ export class MonacoEditorProvider {
         });
 
         if (staticServices.resourcePropertiesService) {
-            // tslint:disable-next-line:no-any
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const original = staticServices.resourcePropertiesService.get() as any;
             original.getEOL = () => {
                 const eol = this.editorPreferences['files.eol'];
@@ -100,6 +109,14 @@ export class MonacoEditorProvider {
 
     protected async getModel(uri: URI, toDispose: DisposableCollection): Promise<MonacoEditorModel> {
         const reference = await this.textModelService.createModelReference(uri);
+        // if document is invalid makes sure that all events from underlying resource are processed before throwing invalid model
+        if (!reference.object.valid) {
+            await reference.object.sync();
+        }
+        if (!reference.object.valid) {
+            reference.dispose();
+            throw Object.assign(new Error(`'${uri.toString()}' is invalid`), { code: 'MODEL_IS_INVALID' });
+        }
         toDispose.push(reference);
         return reference.object;
     }
@@ -114,21 +131,29 @@ export class MonacoEditorProvider {
         const contextKeyService = this.contextKeyService.createScoped();
         const { codeEditorService, textModelService, contextMenuService } = this;
         const IWorkspaceEditService = this.bulkEditService;
-        const toDispose = new DisposableCollection();
+        const toDispose = new DisposableCollection(commandService);
+        const openerService = new monaco.services.OpenerService(codeEditorService, commandService);
+        openerService.registerOpener({
+            open: (uri, options) => this.interceptOpen(uri, options)
+        });
         const editor = await factory({
             codeEditorService,
             textModelService,
             contextMenuService,
             commandService,
             IWorkspaceEditService,
-            contextKeyService
+            contextKeyService,
+            openerService
         }, toDispose);
         editor.onDispose(() => toDispose.dispose());
 
+        this.suppressMonacoKeybindingListener(editor);
+        this.injectKeybindingResolver(editor);
+
         const standaloneCommandService = new monaco.services.StandaloneCommandService(editor.instantiationService);
         commandService.setDelegate(standaloneCommandService);
-        this.installQuickOpenService(editor);
-        this.installReferencesController(editor);
+        toDispose.push(this.installQuickOpenService(editor));
+        toDispose.push(this.installReferencesController(editor));
 
         toDispose.push(editor.onFocusChanged(focused => {
             if (focused) {
@@ -142,6 +167,69 @@ export class MonacoEditorProvider {
         }));
 
         return editor;
+    }
+
+    /**
+     * Intercept internal Monaco open calls and delegate to OpenerService.
+     */
+    protected async interceptOpen(monacoUri: monaco.Uri | string, monacoOptions?: monaco.services.OpenInternalOptions | monaco.services.OpenExternalOptions): Promise<boolean> {
+        let options = undefined;
+        if (monacoOptions) {
+            if ('openToSide' in monacoOptions && monacoOptions.openToSide) {
+                options = Object.assign(options || {}, <WidgetOpenerOptions>{
+                    widgetOptions: {
+                        mode: 'split-right'
+                    }
+                });
+            }
+            if ('openExternal' in monacoOptions && monacoOptions.openExternal) {
+                options = Object.assign(options || {}, <HttpOpenHandlerOptions>{
+                    openExternal: true
+                });
+            }
+        }
+        const uri = new URI(monacoUri.toString());
+        try {
+            await open(this.openerService, uri, options);
+            return true;
+        } catch (e) {
+            console.error(`Fail to open '${uri.toString()}':`, e);
+            return false;
+        }
+    }
+
+    /**
+     * Suppresses Monaco keydown listener to avoid triggering default Monaco keybindings
+     * if they are overridden by a user. Monaco keybindings should be registered as Theia keybindings
+     * to allow a user to customize them.
+     */
+    protected suppressMonacoKeybindingListener(editor: MonacoEditor): void {
+        let keydownListener: monaco.IDisposable | undefined;
+        const keybindingService = editor.getControl()._standaloneKeybindingService;
+        for (const listener of keybindingService._store._toDispose) {
+            if ('_type' in listener && listener['_type'] === 'keydown') {
+                keydownListener = listener;
+                break;
+            }
+        }
+        if (keydownListener) {
+            keydownListener.dispose();
+        }
+    }
+
+    protected injectKeybindingResolver(editor: MonacoEditor): void {
+        const keybindingService = editor.getControl()._standaloneKeybindingService;
+        keybindingService.resolveKeybinding = keybinding => [new MonacoResolvedKeybinding(MonacoResolvedKeybinding.keySequence(keybinding), this.keybindingRegistry)];
+        keybindingService.resolveKeyboardEvent = keyboardEvent => {
+            const keybinding = new monaco.keybindings.SimpleKeybinding(
+                keyboardEvent.ctrlKey,
+                keyboardEvent.shiftKey,
+                keyboardEvent.altKey,
+                keyboardEvent.metaKey,
+                keyboardEvent.keyCode
+            ).toChord();
+            return new MonacoResolvedKeybinding(MonacoResolvedKeybinding.keySequence(keybinding), this.keybindingRegistry);
+        };
     }
 
     protected createEditor(uri: URI, override: IEditorOverrideServices, toDispose: DisposableCollection): Promise<MonacoEditor> {
@@ -198,8 +286,8 @@ export class MonacoEditorProvider {
         }
         const formatOnSaveTimeout = this.editorPreferences.get({ preferenceName: 'editor.formatOnSaveTimeout', overrideIdentifier }, undefined, uri)!;
         await Promise.race([
-            new Promise(reject => setTimeout(() => reject(new Error(`Aborted format on save after ${formatOnSaveTimeout}ms`)), formatOnSaveTimeout)),
-            await editor.commandService.executeCommand('editor.action.formatDocument')
+            new Promise((_, reject) => setTimeout(() => reject(new Error(`Aborted format on save after ${formatOnSaveTimeout}ms`)), formatOnSaveTimeout)),
+            editor.commandService.executeCommand('editor.action.formatDocument')
         ]);
         return [];
     }
@@ -285,36 +373,54 @@ export class MonacoEditorProvider {
         }
     }
 
-    protected installQuickOpenService(editor: MonacoEditor): void {
+    protected installQuickOpenService(editor: MonacoEditor): Disposable {
         const control = editor.getControl();
         const quickOpenController = control._contributions['editor.controller.quickOpenController'];
+        const originalRun = quickOpenController.run;
+        const toDispose = new DisposableCollection();
+        quickOpenController.dispose = () => toDispose.dispose();
         quickOpenController.run = options => {
+            const toDisposeOnClose = toDispose.push(Disposable.create(() => this.quickOpenService.hide()));
+
             const selection = control.getSelection();
             this.quickOpenService.internalOpen({
                 ...options,
                 onClose: canceled => {
+                    toDisposeOnClose.dispose();
+
                     quickOpenController.clearDecorations();
 
+                    // Restore selection if canceled
                     if (canceled && selection) {
                         control.setSelection(selection);
                         control.revealRangeInCenterIfOutsideViewport(selection);
                     }
-                    editor.focus();
+
+                    // Return focus to the editor if
+                    // - focus is back on the <body> element because no other focusable element was clicked
+                    // - a command was picked from the picker which indicates the editor should get focused
+                    if (document.activeElement === document.body || !canceled) {
+                        editor.focus();
+                    }
                 }
             });
         };
+        return Disposable.create(() => quickOpenController.run = originalRun);
     }
 
-    protected installReferencesController(editor: MonacoEditor): void {
+    protected installReferencesController(editor: MonacoEditor): Disposable {
         const control = editor.getControl();
         const referencesController = control._contributions['editor.contrib.referencesController'];
-        referencesController._gotoReference = ref => {
-            referencesController._widget.hide();
+        const originalGotoReference = referencesController._gotoReference;
+        referencesController._gotoReference = async ref => {
+            if (referencesController._widget) {
+                referencesController._widget.hide();
+            }
 
             referencesController._ignoreModelChangeEvent = true;
             const range = monaco.Range.lift(ref.range).collapseToStart();
 
-            // prerse the model that it does not get disposed if an editor preview replaces an editor
+            // preserve the model that it does not get disposed if an editor preview replaces an editor
             const model = referencesController._model;
             referencesController._model = undefined;
 
@@ -340,9 +446,7 @@ export class MonacoEditorProvider {
 
                     const modelPromise = Promise.resolve(model) as any;
                     modelPromise.cancel = () => { };
-                    openedEditor._contributions['editor.contrib.referencesController'].toggleWidget(range, modelPromise, {
-                        getMetaTitle: m => m.references.length > 1 ? ` – ${m.references.length} references` : ''
-                    });
+                    openedEditor._contributions['editor.contrib.referencesController'].toggleWidget(range, modelPromise, true);
                     return;
                 }
 
@@ -356,6 +460,7 @@ export class MonacoEditorProvider {
                 monaco.error.onUnexpectedError(e);
             });
         };
+        return Disposable.create(() => referencesController._gotoReference = originalGotoReference);
     }
 
     getDiffNavigator(editor: TextEditor): DiffNavigator {

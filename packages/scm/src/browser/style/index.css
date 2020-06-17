@@ -13,8 +13,15 @@
  *
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  ********************************************************************************/
+
+.theia-scm-commit {
+    overflow: hidden;
+    font-size: var(--theia-ui-font-size1);
+    max-height: calc(100% - var(--theia-border-width));
+    position: relative;
+}
+
 .theia-scm {
-    color: var(--theia-ui-font-color1);
     padding: 5px;
     box-sizing: border-box;
     height: 100%;
@@ -35,6 +42,12 @@
     align-items: center;
 }
 
+.theia-scm:focus, .theia-scm :focus {
+    outline: 0;
+    box-shadow: none;
+    border: none;
+}
+
 .theia-scm .space-between {
     justify-content: space-between;
 }
@@ -43,7 +56,7 @@
     font-weight: bold;
 }
 
-.theia-scm .changesContainer {
+.theia-scm .theia-scm-amend {
     margin: 5px 0;
 }
 
@@ -64,15 +77,7 @@
 }
 
 .theia-scm .warn {
-    background-color: var(--theia-error-color2) !important;
-}
-
-.theia-scm div:focus .theia-mod-selected {
-    background: var(--theia-accent-color3);
-}
-
-.theia-scm .theia-mod-selected{
-    background: var(--theia-accent-color4);
+    background-color: var(--theia-inputValidation-warningBackground) !important;
 }
 
 .theia-scm-main-container {
@@ -90,13 +95,9 @@
 
 .theia-scm-input-message-container textarea {
     line-height: var(--theia-content-line-height);
-    font-size: var(--theia-ui-font-size1);
-    color: var(--theia-ui-font-color1);
-    background: var(--theia-layout-color2);
     resize: none;
     box-sizing: border-box;
-    height: 26px;
-    min-height: 26px;
+    min-height: 32px;
     padding: 4px;
     border: none;
 }
@@ -108,7 +109,11 @@
 }
 
 .theia-scm-input-message-container textarea:not(:focus) {
-    border: none;
+    border: var(--theia-border-width) solid var(--theia-input-background);
+}
+
+.theia-scm-input-message-container textarea:focus {
+    border: var(--theia-border-width) solid var(--theia-focusBorder);
 }
 
 .theia-scm-input-message {
@@ -116,23 +121,23 @@
 }
 
 .theia-scm-input-message-idle:not(:focus) {
-    border-color: var(--theia-border-color0);
+    border-color: var(--theia-input-border);
 }
 
 .theia-scm-input-message-info {
-    border-color: var(--theia-info-color0);
+    border-color: var(--theia-inputValidation-infoBorder) !important;
 }
 
 .theia-scm-input-message-success {
-    border-color: var(--theia-success-color0);
+    border-color: var(--theia-successBackground) !important;
 }
 
 .theia-scm-input-message-warning {
-    border-color: var(--theia-warn-color0);
+    border-color: var(--theia-inputValidation-warningBorder) !important;
 }
 
 .theia-scm-input-message-error {
-    border-color: var(--theia-error-color0) !important;
+    border-color: var(--theia-inputValidation-errorBorder) !important;
 }
 
 .theia-scm-message,
@@ -140,29 +145,31 @@
     padding: 4px 4px 4px 4px;
 }
 
-.theia-scm-validation-message-idle {
-    background-color: var(--theia-border-color0) !important;
-}
-
 .theia-scm-validation-message-info {
-    background-color: var(--theia-info-color0) !important;
-    color: var(--theia-info-font-color0);
+    background-color: var(--theia-inputValidation-infoBackground) !important;
+    color: var(--theia-inputValidation-infoForeground);
+    border: var(--theia-border-width) solid var(--theia-inputValidation-infoBorder);
+    border-top: none; /* remove top border since the input declares it already */
 }
 
 .theia-scm-validation-message-success {
-    background-color: var(--theia-success-color0) !important;
-    color: var(--theia-success-font-color0);
+    background-color: var(--theia-successBackground) !important;
+    color: var(--theia-inputValidation-warningBackground);
 }
 
 .theia-scm-message-warning,
 .theia-scm-validation-message-warning {
-    background-color: var(--theia-warn-color0) !important;
-    color: var(--theia-warn-font-color0);
+    background-color: var(--theia-inputValidation-warningBackground) !important;
+    color: var(--theia-inputValidation-warningForeground);
+    border: var(--theia-border-width) solid var(--theia-inputValidation-warningBorder);
+    border-top: none; /* remove top border since the input declares it already */
 }
 
 .theia-scm-validation-message-error {
-    background-color: var(--theia-error-color0) !important;
-    color: var(--theia-error-font-color0);
+    background-color: var(--theia-inputValidation-errorBackground) !important;
+    color: var(--theia-inputValidation-errorForeground);
+    border: var(--theia-border-width) solid var(--theia-inputValidation-errorBorder);
+    border-top: none; /* remove top border since the input declares it already */
 }
 
 .no-select {
@@ -180,26 +187,42 @@
 }
 
 .theia-scm .scmItem {
-    margin: 1px 0 1px 0;
-    padding: 2px 5px 2px 5px;
     font-size: var(--theia-ui-font-size1);
     display: flex;
+    align-items: center;
     justify-content: space-between;
-}
-
-.theia-scm .scmItem .file-icon {
-    display: initial;
+    height: var(--theia-content-line-height);
+    line-height: var(--theia-content-line-height);
+    padding: 0px calc(var(--theia-ui-padding)/2);
 }
 
 .theia-scm .scmItem:hover {
-    background-color: var(--theia-layout-color2);
     cursor: pointer;
 }
 
+.theia-scm:focus-within .scmItem:focus {
+    background: var(--theia-list-focusBackground);
+    color: var(--theia-list-focusForeground);
+}
+
+.theia-scm:not(:focus-within) .scmItem:not(:focus) {
+    background: var(--theia-list-inactiveFocusBackground);
+}
+
+.theia-scm:focus-within .scmItem.theia-mod-selected {
+    background: var(--theia-list-activeSelectionBackground);
+    color: var(--theia-list-activeSelectionForeground);
+}
+
+.theia-scm:not(:focus-within) .scmItem.theia-mod-selected {
+    background: var(--theia-list-inactiveSelectionBackground);
+    color: var(--theia-list-inactiveSelectionForeground);
+}
+
 .theia-scm .scmItem .path {
-    color: var(--theia-ui-font-color2);
     font-size: var(--theia-ui-font-size0);
     margin-left: var(--theia-ui-padding);
+    opacity: .7;
 }
 
 .theia-scm .scmItem .status {
@@ -209,17 +232,16 @@
     padding-bottom: 2px;
     font-size: var(--theia-ui-font-size0);
 }
+
 .scm-change-count {
     float: right;
 }
 
 .scm-theia-header {
-    padding: 5px;
     display: flex;
 }
 
 .scm-theia-header:hover {
-    background-color: var(--theia-layout-color2);
     cursor: pointer;
 }
 
@@ -240,6 +262,10 @@
     margin: 0 3px;
 }
 
+.theia-scm-inline-actions a {
+    color: var(--theia-icon-foreground);
+}
+
 .theia-scm-inline-action {
     padding: 0px 3px;
     font-size: var(--theia-ui-font-size1);
@@ -250,7 +276,11 @@
 }
 
 .theia-scm-inline-action .open-file {
-    height: 16px;
+    height: var(--theia-icon-size);
     width: 12px;
     background: var(--theia-icon-open-file) no-repeat center center;
+}
+
+.theia-scm-panel {
+    overflow: visible;
 }

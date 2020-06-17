@@ -15,14 +15,14 @@
  ********************************************************************************/
 
 import { inject, injectable, named } from 'inversify';
-import { ContributionProvider, CommandRegistry, MenuModelRegistry, ILogger, isOSX } from '../common';
+import { ContributionProvider, CommandRegistry, MenuModelRegistry, isOSX } from '../common';
 import { MaybePromise } from '../common/types';
 import { KeybindingRegistry } from './keybinding';
 import { Widget } from './widgets';
 import { ApplicationShell } from './shell/application-shell';
 import { ShellLayoutRestorer, ApplicationShellLayoutMigrationError } from './shell/shell-layout-restorer';
 import { FrontendApplicationStateService } from './frontend-application-state';
-import { preventNavigation, parseCssTime } from './browser';
+import { preventNavigation, parseCssTime, animationFrame } from './browser';
 import { CorePreferences } from './core-preferences';
 
 /**
@@ -75,6 +75,8 @@ export interface FrontendApplicationContribution {
     onDidInitializeLayout?(app: FrontendApplication): MaybePromise<void>;
 }
 
+const TIMER_WARNING_THRESHOLD = 100;
+
 /**
  * Default frontend contribution that can be extended by clients if they do not want to implement any of the
  * methods from the interface but still want to contribute to the frontend application.
@@ -98,7 +100,6 @@ export class FrontendApplication {
         @inject(CommandRegistry) protected readonly commands: CommandRegistry,
         @inject(MenuModelRegistry) protected readonly menus: MenuModelRegistry,
         @inject(KeybindingRegistry) protected readonly keybindings: KeybindingRegistry,
-        @inject(ILogger) protected readonly logger: ILogger,
         @inject(ShellLayoutRestorer) protected readonly layoutRestorer: ShellLayoutRestorer,
         @inject(ContributionProvider) @named(FrontendApplicationContribution)
         protected readonly contributions: ContributionProvider<FrontendApplicationContribution>,
@@ -125,7 +126,7 @@ export class FrontendApplication {
 
         const host = await this.getHost();
         this.attachShell(host);
-        await new Promise(resolve => requestAnimationFrame(() => resolve()));
+        await animationFrame();
         this.stateService.state = 'attached_shell';
 
         await this.initializeLayout();
@@ -166,7 +167,7 @@ export class FrontendApplication {
     /**
      * Register composition related event listeners.
      */
-    protected registerComositionEventListeners(): void {
+    protected registerCompositionEventListeners(): void {
         window.document.addEventListener('compositionstart', event => {
             this.inComposition = true;
         });
@@ -180,7 +181,7 @@ export class FrontendApplication {
      * Register global event listeners.
      */
     protected registerEventListeners(): void {
-        this.registerComositionEventListeners(); /* Hotfix. See above. */
+        this.registerCompositionEventListeners(); /* Hotfix. See above. */
 
         window.addEventListener('beforeunload', () => {
             this.stateService.state = 'closing_window';
@@ -303,9 +304,11 @@ export class FrontendApplication {
         for (const contribution of this.contributions.getContributions()) {
             if (contribution.initialize) {
                 try {
-                    contribution.initialize();
+                    await this.measure(contribution.constructor.name + '.initialize',
+                        () => contribution.initialize!()
+                    );
                 } catch (error) {
-                    this.logger.error('Could not initialize contribution', error);
+                    console.error('Could not initialize contribution', error);
                 }
             }
         }
@@ -313,9 +316,11 @@ export class FrontendApplication {
         for (const contribution of this.contributions.getContributions()) {
             if (contribution.configure) {
                 try {
-                    await contribution.configure(this);
+                    await this.measure(contribution.constructor.name + '.configure',
+                        () => contribution.configure!(this)
+                    );
                 } catch (error) {
-                    this.logger.error('Could not configure contribution', error);
+                    console.error('Could not configure contribution', error);
                 }
             }
         }
@@ -325,9 +330,15 @@ export class FrontendApplication {
          * - decouple commands & menus
          * - consider treat commands, keybindings and menus as frontend application contributions
          */
-        this.commands.onStart();
-        await this.keybindings.onStart();
-        this.menus.onStart();
+        await this.measure('commands.onStart',
+            () => this.commands.onStart()
+        );
+        await this.measure('keybindings.onStart',
+            () => this.keybindings.onStart()
+        );
+        await this.measure('menus.onStart',
+            () => this.menus.onStart()
+        );
         for (const contribution of this.contributions.getContributions()) {
             if (contribution.onStart) {
                 try {
@@ -335,7 +346,7 @@ export class FrontendApplication {
                         () => contribution.onStart!(this)
                     );
                 } catch (error) {
-                    this.logger.error('Could not start contribution', error);
+                    console.error('Could not start contribution', error);
                 }
             }
         }
@@ -345,17 +356,17 @@ export class FrontendApplication {
      * Stop the frontend application contributions. This is called when the window is unloaded.
      */
     protected stopContributions(): void {
-        this.logger.info('>>> Stopping contributions....');
+        console.info('>>> Stopping frontend contributions...');
         for (const contribution of this.contributions.getContributions()) {
             if (contribution.onStop) {
                 try {
                     contribution.onStop(this);
                 } catch (error) {
-                    this.logger.error('Could not stop contribution', error);
+                    console.error('Could not stop contribution', error);
                 }
             }
         }
-        this.logger.info('<<< All contributions have been stopped.');
+        console.info('<<< All frontend contributions have been stopped.');
     }
 
     protected async measure<T>(name: string, fn: () => MaybePromise<T>): Promise<T> {
@@ -366,10 +377,11 @@ export class FrontendApplication {
         performance.mark(endMark);
         performance.measure(name, startMark, endMark);
         for (const item of performance.getEntriesByName(name)) {
-            if (item.duration > 100) {
-                console.warn(item.name + ' is slow, took: ' + item.duration + ' ms');
+            const contribution = `Frontend ${item.name}`;
+            if (item.duration > TIMER_WARNING_THRESHOLD) {
+                console.warn(`${contribution} is slow, took: ${item.duration.toFixed(1)} ms`);
             } else {
-                console.debug(item.name + ' took ' + item.duration + ' ms');
+                console.debug(`${contribution} took: ${item.duration.toFixed(1)} ms`);
             }
         }
         performance.clearMeasures(name);

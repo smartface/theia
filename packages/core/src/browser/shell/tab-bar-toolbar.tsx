@@ -25,7 +25,7 @@ import { CommandRegistry } from '../../common/command';
 import { Disposable, DisposableCollection } from '../../common/disposable';
 import { ContextKeyService } from '../context-key-service';
 import { Event, Emitter } from '../../common/event';
-import { ContextMenuRenderer } from '../context-menu-renderer';
+import { ContextMenuRenderer, Anchor } from '../context-menu-renderer';
 import { MenuModelRegistry } from '../../common/menu';
 import { MouseEventHandler } from 'react';
 
@@ -129,9 +129,10 @@ export class TabBarToolbar extends ReactWidget {
         if (iconClass) {
             classNames.push(iconClass);
         }
-        return <div key={item.id} className={`${TabBarToolbar.Styles.TAB_BAR_TOOLBAR_ITEM}${command && this.commandIsEnabled(command.id) ? ' enabled' :   ''}`}
+        const tooltip = item.tooltip || (command && command.label);
+        return <div key={item.id} className={`${TabBarToolbar.Styles.TAB_BAR_TOOLBAR_ITEM}${command && this.commandIsEnabled(command.id) ? ' enabled' : ''}`}
             onMouseDown={this.onMouseDownEvent} onMouseUp={this.onMouseUpEvent} onMouseOut={this.onMouseUpEvent} >
-            <div id={item.id} className={classNames.join(' ')} onClick={this.executeCommand} title={item.tooltip}>{innerText}</div>
+            <div id={item.id} className={classNames.join(' ')} onClick={this.executeCommand} title={tooltip}>{innerText}</div>
         </div>;
     }
 
@@ -145,6 +146,11 @@ export class TabBarToolbar extends ReactWidget {
         event.stopPropagation();
         event.preventDefault();
 
+        this.renderMoreContextMenu(event.nativeEvent);
+    };
+
+    /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
+    renderMoreContextMenu(anchor: Anchor): any {
         const menuPath = ['TAB_BAR_TOOLBAR_CONTEXT_MENU'];
         const toDisposeOnHide = new DisposableCollection();
         for (const [, item] of this.more) {
@@ -154,10 +160,10 @@ export class TabBarToolbar extends ReactWidget {
                 when: item.when
             }));
         }
-        this.contextMenuRenderer.render({
+        return this.contextMenuRenderer.render({
             menuPath,
             args: [this.current],
-            anchor: event.nativeEvent,
+            anchor,
             onHide: () => toDisposeOnHide.dispose()
         });
     }
@@ -178,17 +184,17 @@ export class TabBarToolbar extends ReactWidget {
         if (TabBarToolbarItem.is(item)) {
             this.commands.executeCommand(item.command, this.current);
         }
-    }
+    };
 
     protected onMouseDownEvent: React.MouseEventHandler = e => {
         if (e.button === 0) {
             e.currentTarget.classList.add('active');
         }
-    }
+    };
 
     protected onMouseUpEvent: MouseEventHandler = e => {
         e.currentTarget.classList.remove('active');
-    }
+    };
 
 }
 
@@ -335,7 +341,7 @@ export namespace TabBarToolbarItem {
     };
 
     export function is(arg: Object | undefined): arg is TabBarToolbarItem {
-        // tslint:disable-next-line:no-any
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         return !!arg && 'command' in arg && typeof (arg as any).command === 'string';
     }
 

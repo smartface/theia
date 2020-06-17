@@ -23,7 +23,7 @@ export interface Disposable {
 }
 
 export namespace Disposable {
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     export function is(arg: any): arg is Disposable {
         return !!arg && typeof arg === 'object' && 'dispose' in arg && typeof arg['dispose'] === 'function';
     }
@@ -44,6 +44,10 @@ export class DisposableCollection implements Disposable {
         toDispose.forEach(d => this.push(d));
     }
 
+    /**
+     * This event is fired only once
+     * on first dispose of not empty collection.
+     */
     get onDispose(): Event<void> {
         return this.onDisposeEmitter.event;
     }
@@ -51,6 +55,7 @@ export class DisposableCollection implements Disposable {
     protected checkDisposed(): void {
         if (this.disposed && !this.disposingElements) {
             this.onDisposeEmitter.fire(undefined);
+            this.onDisposeEmitter.dispose();
         }
     }
 

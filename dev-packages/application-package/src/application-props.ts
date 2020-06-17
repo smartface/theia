@@ -14,6 +14,8 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  ********************************************************************************/
 
+import type { BrowserWindowConstructorOptions } from 'electron';
+
 export interface NpmRegistryProps {
 
     /**
@@ -39,7 +41,7 @@ export namespace NpmRegistryProps {
  */
 export interface ApplicationProps extends NpmRegistryProps {
 
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     readonly [key: string]: any;
 
     /**
@@ -63,8 +65,12 @@ export interface ApplicationProps extends NpmRegistryProps {
     readonly generator: Readonly<{ config: GeneratorConfig }>;
 }
 export namespace ApplicationProps {
+    export enum ApplicationTarget {
+        browser = 'browser',
+        electron = 'electron'
+    };
 
-    export type Target = 'browser' | 'electron';
+    export type Target = keyof typeof ApplicationTarget;
 
     export const DEFAULT: ApplicationProps = {
         ...NpmRegistryProps.DEFAULT,
@@ -74,7 +80,7 @@ export namespace ApplicationProps {
         },
         frontend: {
             config: {
-                applicationName: 'Theia'
+                applicationName: 'Eclipse Theia'
             }
         },
         generator: {
@@ -90,7 +96,7 @@ export namespace ApplicationProps {
  * Base configuration for the Theia application.
  */
 export interface ApplicationConfig {
-    // tslint:disable-next-line:no-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     readonly [key: string]: any;
 }
 
@@ -109,6 +115,24 @@ export interface FrontendApplicationConfig extends ApplicationConfig {
      */
     readonly applicationName: string;
 
+    /**
+     * Electron specific configuration.
+     */
+    readonly electron?: Readonly<ElectronFrontendApplicationConfig>;
+}
+
+export interface ElectronFrontendApplicationConfig {
+
+    /**
+     * If set to `true`, reloading the current browser window won't be possible with the `Ctrl/Cmd + R` keybinding.
+     * It is `false` by default. Has no effect if not in an electron environment.
+     */
+    readonly disallowReloadKeybinding?: boolean;
+
+    /**
+     * Override or add properties to the electron `windowOptions`.
+     */
+    readonly windowOptions?: BrowserWindowConstructorOptions;
 }
 
 /**
