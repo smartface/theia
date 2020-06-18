@@ -162,7 +162,7 @@ export class ShellLayoutRestorer implements CommandContribution {
     async restoreLayout(app: FrontendApplication): Promise<boolean> {
         this.logger.info('>>> Restoring the layout state...');
         const serializedLayoutData = await this.storageService.getData<string>(this.storageKey);
-        if (serializedLayoutData === undefined) {
+        if (!serializedLayoutData) {
             this.logger.info('<<< Nothing to restore.');
             return false;
         }
