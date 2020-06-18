@@ -164,7 +164,7 @@ export class ShellLayoutRestorer implements CommandContribution {
         const serializedLayoutData = await this.storageService.getData<string>(this.storageKey);
         if (!serializedLayoutData) {
             this.logger.info('<<< Nothing to restore.');
-            return false;
+            return true;
         }
         const layoutData = await this.inflate(serializedLayoutData);
         await app.shell.setLayoutData(layoutData);
