@@ -162,10 +162,12 @@ export class ShellLayoutRestorer implements CommandContribution {
     async restoreLayout(app: FrontendApplication): Promise<boolean> {
         this.logger.info('>>> Restoring the layout state...');
         const serializedLayoutData = await this.storageService.getData<string>(this.storageKey);
+        // Change for first startup issue of the Smartface editor
         if (!serializedLayoutData) {
             this.logger.info('<<< Nothing to restore.');
             return true;
         }
+        // End of change for first startup issue
         const layoutData = await this.inflate(serializedLayoutData);
         await app.shell.setLayoutData(layoutData);
         this.logger.info('<<< The layout has been successfully restored.');
